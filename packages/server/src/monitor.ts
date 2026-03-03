@@ -113,7 +113,9 @@ export class Monitor {
 
     for (const loan of loans) {
       const metrics = computeLoanMetrics(loan, DEFAULT_R_DEPLOY);
-      const zone = classifyZone(metrics.healthFactor);
+      const zone = config.zones
+        ? classifyZone(metrics.healthFactor, config.zones)
+        : classifyZone(metrics.healthFactor);
       const stateKey = `${address}-${loan.id}`;
       const existing = this.states.get(stateKey);
 
