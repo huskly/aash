@@ -177,7 +177,14 @@ function NotificationPanel({ onClose }: { onClose: () => void }) {
                       };
                       setConfig(updated);
                     }}
-                    onBlur={() => void saveConfig(config)}
+                    onBlur={(e) => {
+                      const updated = {
+                        ...config,
+                        telegram: { ...config.telegram, chatId: e.target.value },
+                      };
+                      setConfig(updated);
+                      void saveConfig(updated);
+                    }}
                     placeholder="e.g. 123456789"
                   />
                 </label>
