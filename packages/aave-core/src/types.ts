@@ -76,6 +76,14 @@ export type Computed = {
   rBorrow: number;
   rDeploy: number;
   primaryCollateralSymbol: string;
+  assetLiquidations: AssetLiquidation[];
+};
+
+export type AssetLiquidation = {
+  symbol: string;
+  liqPrice: number;
+  priceDropToLiq: number;
+  currentPrice: number;
 };
 
 export type AaveMarket = {

@@ -1,4 +1,5 @@
 import {
+  type AssetLiquidation,
   type Zone,
   type ZoneName,
   classifyZone,
@@ -306,19 +307,15 @@ export class Monitor {
     },
     metrics: {
       healthFactor: number;
-      liqPrice: number;
-      priceDropToLiq: number;
-      primaryCollateralSymbol: string;
+      assetLiquidations: AssetLiquidation[];
     },
     zone: Zone,
     previousZone: Zone,
   ): string {
     const walletLabel = label ? `${label} (${this.shortAddr(address)})` : this.shortAddr(address);
     const hf = Number.isFinite(metrics.healthFactor) ? metrics.healthFactor.toFixed(2) : '∞';
-    const liqPrice = Number.isFinite(metrics.liqPrice) ? `$${metrics.liqPrice.toFixed(2)}` : 'N/A';
-    const distToLiq = (metrics.priceDropToLiq * 100).toFixed(1);
 
-    return [
+    const lines = [
       `${zone.emoji} <b>${zone.label}</b> — Loan Health Changed`,
       '',
       `Wallet: <code>${walletLabel}</code>`,
@@ -329,9 +326,15 @@ export class Monitor {
       `Zone: ${zone.emoji} ${zone.label} (was ${previousZone.emoji} ${previousZone.label})`,
       `Action: ${zone.action}`,
       '',
-      `Liquidation price (${metrics.primaryCollateralSymbol}): ${liqPrice}`,
-      `Distance to liquidation: ${distToLiq}%`,
-    ].join('\n');
+    ];
+
+    for (const al of metrics.assetLiquidations) {
+      const liqPrice = Number.isFinite(al.liqPrice) ? `$${al.liqPrice.toFixed(2)}` : 'N/A';
+      const distToLiq = (al.priceDropToLiq * 100).toFixed(1);
+      lines.push(`Liq price (${al.symbol}): ${liqPrice} (−${distToLiq}%)`);
+    }
+
+    return lines.join('\n');
   }
 
   private formatRecovery(

@@ -1,5 +1,6 @@
 export type {
   AaveMarket,
+  AssetLiquidation,
   AssetPosition,
   BadgeTone,
   Computed,

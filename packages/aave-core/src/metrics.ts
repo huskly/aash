@@ -1,4 +1,10 @@
-import type { AssetPosition, BadgeTone, Computed, LoanPosition } from './types.js';
+import type {
+  AssetLiquidation,
+  AssetPosition,
+  BadgeTone,
+  Computed,
+  LoanPosition,
+} from './types.js';
 
 export function n(value: string | number): number {
   const parsed = typeof value === 'number' ? value : Number(value.replaceAll(',', ''));
@@ -114,6 +120,7 @@ export function computeLoanMetrics(loan: LoanPosition | null, rDeploy: number): 
       rBorrow: 0,
       rDeploy: 0,
       primaryCollateralSymbol: '—',
+      assetLiquidations: [],
     };
   }
 
@@ -142,7 +149,7 @@ export function computeLoanMetrics(loan: LoanPosition | null, rDeploy: number): 
   const collateralUSDAtLiq = lt > 0 ? debt / lt : Infinity;
   const collateralOtherUSD = collateralUSD - (primary?.usdValue ?? 0);
   const primaryUsdAtLiq = collateralUSDAtLiq - collateralOtherUSD;
-  const liqPrice = units > 0 ? primaryUsdAtLiq / units : Infinity;
+  const liqPrice = units > 0 ? Math.max(0, primaryUsdAtLiq / units) : Infinity;
   const ltvAtLiq = collateralUSDAtLiq > 0 ? debt / collateralUSDAtLiq : 0;
   const priceDropToLiq = px > 0 && Number.isFinite(liqPrice) ? (px - liqPrice) / px : 0;
 
@@ -159,6 +166,47 @@ export function computeLoanMetrics(loan: LoanPosition | null, rDeploy: number): 
 
   const equityMoveFor10Pct = Number.isFinite(leverage) ? leverage * 0.1 : 0;
   const collateralBufferUSD = collateralUSD - collateralUSDAtLiq;
+
+  const assetLiquidations: AssetLiquidation[] = loan.supplied.map((asset) => {
+    const otherWeightedCollateral = loan.supplied.reduce(
+      (sum, other) => (other === asset ? sum : sum + other.usdValue * other.liqThreshold),
+      0,
+    );
+    const numerator = debt - otherWeightedCollateral;
+    if (asset.amount <= 0 || asset.usdPrice <= 0) {
+      return {
+        symbol: asset.symbol,
+        liqPrice: Infinity,
+        priceDropToLiq: 1,
+        currentPrice: asset.usdPrice,
+      };
+    }
+    // If other collateral alone covers the debt, a single-asset drop can't trigger
+    // liquidation. Fall back to proportional-drop price (assumes all assets decline equally).
+    if (numerator <= 0 || asset.liqThreshold <= 0) {
+      const proportionalLiqPrice =
+        Number.isFinite(healthFactor) && healthFactor > 0
+          ? asset.usdPrice / healthFactor
+          : Infinity;
+      const drop = Number.isFinite(proportionalLiqPrice)
+        ? (asset.usdPrice - proportionalLiqPrice) / asset.usdPrice
+        : 0;
+      return {
+        symbol: asset.symbol,
+        liqPrice: proportionalLiqPrice,
+        priceDropToLiq: Math.max(0, drop),
+        currentPrice: asset.usdPrice,
+      };
+    }
+    const liqPriceForAsset = numerator / (asset.liqThreshold * asset.amount);
+    const drop = (asset.usdPrice - liqPriceForAsset) / asset.usdPrice;
+    return {
+      symbol: asset.symbol,
+      liqPrice: liqPriceForAsset,
+      priceDropToLiq: Math.max(0, drop),
+      currentPrice: asset.usdPrice,
+    };
+  });
 
   const alertHF = healthFactor < 1.5;
   const alertLTV = ltv > 0.7 * lt;
@@ -194,5 +242,6 @@ export function computeLoanMetrics(loan: LoanPosition | null, rDeploy: number): 
     rBorrow,
     rDeploy,
     primaryCollateralSymbol,
+    assetLiquidations,
   };
 }

@@ -546,13 +546,45 @@ export default function App() {
                           }
                           caption="Liquidation when HF < 1.0"
                         />
-                        <KpiCard
-                          title={`Liquidation Price (${computed.primaryCollateralSymbol})`}
-                          value={
-                            Number.isFinite(computed.liqPrice) ? fmtUSD(computed.liqPrice, 2) : '—'
-                          }
-                          caption={`Price drop to liq: ${fmtPct(clamp(computed.priceDropToLiq, 0, 1), 1)}`}
-                        />
+                        {(() => {
+                          const singleLiq = computed.assetLiquidations[0];
+                          return computed.assetLiquidations.length <= 1 ? (
+                            <KpiCard
+                              title={`Liquidation Price (${computed.primaryCollateralSymbol})`}
+                              value={
+                                singleLiq && Number.isFinite(singleLiq.liqPrice)
+                                  ? fmtUSD(singleLiq.liqPrice, 2)
+                                  : '—'
+                              }
+                              caption={
+                                singleLiq
+                                  ? `Price drop to liq: ${fmtPct(clamp(singleLiq.priceDropToLiq, 0, 1), 1)}`
+                                  : ''
+                              }
+                            />
+                          ) : (
+                            <div className="rounded-[14px] border border-[rgba(168,191,217,0.18)] bg-[rgba(12,24,38,0.55)] p-3">
+                              <span className="mb-1.5 block text-[0.78rem] text-[#9fb1c7]">
+                                Liquidation Prices
+                              </span>
+                              <ul className="grid list-none gap-1">
+                                {computed.assetLiquidations.map((al) => (
+                                  <li
+                                    key={al.symbol}
+                                    className="flex items-center justify-between gap-2 text-[0.84rem]"
+                                  >
+                                    <span className="text-[#afc0d5]">{al.symbol}</span>
+                                    <span className="text-right">
+                                      {Number.isFinite(al.liqPrice)
+                                        ? `${fmtUSD(al.liqPrice, 2)} (−${fmtPct(clamp(al.priceDropToLiq, 0, 1), 1)})`
+                                        : 'N/A'}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          );
+                        })()}
                         <KpiCard
                           title="Equity"
                           value={fmtUSD(computed.equity, 0)}
@@ -715,8 +747,7 @@ export default function App() {
 
         <footer className="mt-[18px] text-[0.79rem] text-[#9fb1c7]">
           <p>
-            Simplified monitor. Multi-collateral liquidation price is shown for the primary
-            collateral asset only.
+            Simplified monitor. Per-asset liquidation prices are shown for each collateral asset.
           </p>
         </footer>
       </main>
