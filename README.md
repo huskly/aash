@@ -46,7 +46,7 @@ A React + Vite dashboard that auto-loads Aave loan positions from a wallet addre
 ## Requirements
 
 - Node.js 18+
-- npm
+- Yarn (classic)
 
 ## Environment Variables
 
@@ -74,7 +74,7 @@ Notes:
 1. Install dependencies:
 
 ```bash
-npm install
+yarn install --frozen-lockfile
 ```
 
 2. Add `.env` (see above).
@@ -108,6 +108,24 @@ yarn build         # production frontend build
 yarn build:server  # production server build
 yarn preview       # preview production build
 ```
+
+## Docker Compose
+
+Run both the dashboard UI and notification server together:
+
+```bash
+docker compose up --build
+```
+
+Services:
+
+- Dashboard UI: `http://localhost:5173`
+- Server API: `http://localhost:3001`
+
+Notes:
+
+- The frontend is built with `VITE_NOTIFICATION_API_URL` (defaults to `http://localhost:3001` in `docker-compose.yml`).
+- Server runtime env vars (for example `TELEGRAM_BOT_TOKEN`) are loaded from the root `.env` via `env_file`.
 
 ## GitHub Pages Deployment
 

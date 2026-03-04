@@ -5,13 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Development Commands
 
 ```bash
-npm run dev         # start Vite dev server (localhost:5173)
-npm run build       # tsc -b && vite build (production)
-npm run preview     # preview production build
-npm run typecheck   # frontend + backend workspace TypeScript checks
-npm run lint        # eslint
-npm run format      # prettier --write
-npm run format:check # prettier --check
+yarn dev           # start Vite dev server (localhost:5173)
+yarn build         # tsc -b && vite build (production)
+yarn preview       # preview production build
+yarn typecheck     # frontend + backend workspace TypeScript checks
+yarn lint          # eslint
+yarn format        # prettier --write
+yarn format:check  # prettier --check
 ```
 
 Always run `typecheck`, `lint`, and `format` before finishing changes. Also make sure you check
@@ -59,4 +59,7 @@ There are no tests, no routing, no state management library, and no API abstract
 ## Deployment
 
 - **GitHub Pages**: automated via `.github/workflows/deploy-pages.yml` on push to `main`
-- **Docker**: multi-stage Dockerfile (node build → nginx serve)
+- **Docker Compose**: `docker compose up --build` starts:
+  - dashboard UI on `http://localhost:5173`
+  - server API on `http://localhost:3001`
+- **Docker**: frontend Dockerfile supports `VITE_NOTIFICATION_API_URL` as a build arg

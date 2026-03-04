@@ -64,7 +64,7 @@ if (existsSync(ROOT_ENV_PATH)) {
 }
 
 const PORT = Number(process.env.PORT ?? 3001);
-const RPC_URL = process.env.VITE_RPC_URL ?? process.env.RPC_URL ?? 'https://eth.llamarpc.com';
+const RPC_URL = process.env.VITE_RPC_URL ?? process.env.RPC_URL ?? 'https://rpc.mevblocker.io';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? '';
 const GRAPH_API_KEY = process.env.VITE_THE_GRAPH_API_KEY ?? process.env.THE_GRAPH_API_KEY;
 const COINGECKO_API_KEY = process.env.VITE_COINGECKO_API_KEY ?? process.env.COINGECKO_API_KEY;

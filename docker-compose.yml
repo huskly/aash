@@ -1,10 +1,15 @@
 services:
-  frontend:
-    build: .
+  dashboard:
+    build:
+      context: .
+      args:
+        VITE_NOTIFICATION_API_URL: ${VITE_NOTIFICATION_API_URL:-http://localhost:3001}
     ports:
-      - '80:80'
+      - '5173:80'
+    depends_on:
+      - server
 
-  monitor:
+  server:
     build:
       context: .
       dockerfile: packages/server/Dockerfile

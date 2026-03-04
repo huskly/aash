@@ -1,7 +1,7 @@
 FROM node:25-alpine AS builder
 
 WORKDIR /app
-COPY ../../package.json ../../yarn.lock ./
+COPY package.json yarn.lock ./
 COPY packages/aave-core/package.json packages/aave-core/
 COPY packages/server/package.json packages/server/
 
@@ -13,7 +13,7 @@ COPY packages/server/ packages/server/
 RUN yarn workspace @aave-monitor/core run build
 RUN yarn workspace @aave-monitor/server run build
 
-FROM node:22-alpine
+FROM node:25-alpine
 
 WORKDIR /app
 COPY --from=builder /app/package.json /app/yarn.lock ./
