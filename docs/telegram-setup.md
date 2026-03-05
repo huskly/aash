@@ -109,7 +109,7 @@ Zone thresholds are configurable via the UI settings panel or the `PUT /api/conf
 - **Critical zone** bypasses debounce — instant notification.
 - Other zone transitions require **2 consecutive checks** (~10 min) before alerting.
 - **Recovery** sends a single message, then a 30-minute cooldown.
-- If stuck in a non-safe zone for 30+ minutes, a **reminder** is sent.
+- If stuck in a non-safe zone for 30+ minutes, a **reminder** is sent with a human-readable elapsed duration (e.g. `2h 40m ago`).
 - An **"All clear"** message is sent when returning to Safe.
 
 ## Docker

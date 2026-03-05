@@ -14,6 +14,7 @@ import {
   DEFAULT_R_DEPLOY,
   DEFAULT_ZONES,
 } from '@aave-monitor/core';
+import { intervalToDuration } from 'date-fns';
 import type { AlertConfig } from './storage.js';
 import type { TelegramClient } from './telegram.js';
 
@@ -402,7 +403,7 @@ export class Monitor {
   ): string {
     const walletLabel = label ? `${label} (${this.shortAddr(address)})` : this.shortAddr(address);
     const hf = Number.isFinite(metrics.healthFactor) ? metrics.healthFactor.toFixed(2) : '∞';
-    const minutes = Math.round(stuckDurationMs / 60_000);
+    const timeAgo = this.formatTimeAgo(stuckDurationMs);
 
     return [
       `${zone.emoji} <b>REMINDER</b> — Still in ${zone.label} zone`,
@@ -410,9 +411,33 @@ export class Monitor {
       `Wallet: <code>${walletLabel}</code>`,
       `Market: ${loan.marketName} · ${loan.borrowed.symbol}`,
       `Health Factor: <b>${hf}</b>`,
-      `Duration: ${minutes} minutes`,
+      `Duration: ${timeAgo} ago`,
       `Action: ${zone.action}`,
     ].join('\n');
+  }
+
+  private formatTimeAgo(durationMs: number): string {
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return '<1m';
+
+    const {
+      days = 0,
+      hours = 0,
+      minutes = 0,
+    } = intervalToDuration({
+      start: 0,
+      end: durationMs,
+    });
+
+    const parts: string[] = [];
+    if (days > 0) parts.push(`${days}d`);
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0) parts.push(`${minutes}m`);
+
+    if (parts.length === 0) {
+      return '<1m';
+    }
+
+    return parts.slice(0, 2).join(' ');
   }
 
   private shortAddr(address: string): string {

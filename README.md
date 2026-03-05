@@ -150,6 +150,7 @@ After each push to `main`, the workflow builds the app and publishes `dist` to G
 
 A backend monitoring service can poll your positions and send Telegram alerts when health factor zones change (e.g. Safe → Watch → Alert → Critical). See **[docs/telegram-setup.md](docs/telegram-setup.md)** for full setup instructions.
 The Telegram `/status` command includes a portfolio summary with average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and cash margin of safety (USD and %).
+Reminder alerts include a human-readable elapsed duration label (e.g. `2h 40m ago`).
 Paid-off / zero-value positions are excluded from both dashboard and Telegram status output.
 
 Quick start:

@@ -35,6 +35,7 @@ Backend server notes:
 - Backend Graph/CoinGecko keys are read from `VITE_THE_GRAPH_API_KEY` and `VITE_COINGECKO_API_KEY` (legacy non-`VITE_` names still work as fallback).
 - `POST /api/status/refresh` forces an immediate monitor recomputation and returns fresh `/api/status` payload.
 - Telegram `/status` includes portfolio average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and cash margin of safety (USD and %) alongside per-loan health factors. Telegram alerts include per-asset liquidation prices for each collateral asset.
+- Reminder alerts include a human-readable elapsed duration label (e.g. `2h 40m ago`).
 - Fully paid-off / zero-value positions are filtered out of both dashboard data and Telegram status output.
 
 Frontend notes:
