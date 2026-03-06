@@ -14,6 +14,16 @@ export type ZoneConfig = {
   maxHF: number;
 };
 
+export type WatchdogConfig = {
+  enabled: boolean;
+  dryRun: boolean;
+  triggerHF: number;
+  targetHF: number;
+  cooldownMs: number;
+  maxRepayUsd: number;
+  maxGasGwei: number;
+};
+
 export type AlertConfig = {
   wallets: WalletConfig[];
   telegram: {
@@ -27,6 +37,17 @@ export type AlertConfig = {
     cooldownMs: number;
   };
   zones: ZoneConfig[];
+  watchdog: WatchdogConfig;
+};
+
+const DEFAULT_WATCHDOG_CONFIG: WatchdogConfig = {
+  enabled: false,
+  dryRun: true,
+  triggerHF: 1.25,
+  targetHF: 1.5,
+  cooldownMs: 30 * 60 * 1000,
+  maxRepayUsd: 10_000,
+  maxGasGwei: 50,
 };
 
 const DEFAULT_CONFIG: AlertConfig = {
@@ -49,7 +70,23 @@ const DEFAULT_CONFIG: AlertConfig = {
     { name: 'action', minHF: 1.15, maxHF: 1.3 },
     { name: 'critical', minHF: 0, maxHF: 1.15 },
   ],
+  watchdog: { ...DEFAULT_WATCHDOG_CONFIG },
 };
+
+function parseEnvFloat(name: string): number | undefined {
+  const value = process.env[name];
+  if (!value) return undefined;
+  const parsed = Number(value.trim());
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function applyWatchdogEnvOverrides(watchdog: WatchdogConfig): void {
+  const triggerHF = parseEnvFloat('WATCHDOG_TRIGGER_HF');
+  if (triggerHF !== undefined) watchdog.triggerHF = triggerHF;
+
+  const targetHF = parseEnvFloat('WATCHDOG_TARGET_HF');
+  if (targetHF !== undefined) watchdog.targetHF = targetHF;
+}
 
 export class ConfigStorage {
   private config: AlertConfig;
@@ -63,7 +100,9 @@ export class ConfigStorage {
   private load(): AlertConfig {
     try {
       if (!existsSync(this.filePath)) {
-        return structuredClone(DEFAULT_CONFIG);
+        const config = structuredClone(DEFAULT_CONFIG);
+        applyWatchdogEnvOverrides(config.watchdog);
+        return config;
       }
       const raw = readFileSync(this.filePath, 'utf-8');
       const config = JSON.parse(raw) as AlertConfig;
@@ -75,9 +114,16 @@ export class ConfigStorage {
           }
         }
       }
+      // Ensure watchdog config exists for older config files
+      if (!config.watchdog) {
+        config.watchdog = { ...DEFAULT_WATCHDOG_CONFIG };
+      }
+      applyWatchdogEnvOverrides(config.watchdog);
       return config;
     } catch {
-      return structuredClone(DEFAULT_CONFIG);
+      const config = structuredClone(DEFAULT_CONFIG);
+      applyWatchdogEnvOverrides(config.watchdog);
+      return config;
     }
   }
 
@@ -98,6 +144,7 @@ export class ConfigStorage {
     if (partial.telegram !== undefined) this.config.telegram = partial.telegram;
     if (partial.polling !== undefined) this.config.polling = partial.polling;
     if (partial.zones !== undefined) this.config.zones = partial.zones;
+    if (partial.watchdog !== undefined) this.config.watchdog = partial.watchdog;
     this.save();
     return this.config;
   }
