@@ -363,7 +363,7 @@ export class Watchdog {
   }
   private walletPromise?: Promise<import('ethers').Wallet>;
 
-  private async sendTransaction(_from: string, to: string, data: string): Promise<string> {
+  private async sendTransaction(from: string, to: string, data: string): Promise<string> {
     if (!this.privateKey) {
       throw new Error('No private key configured');
     }
@@ -377,6 +377,14 @@ export class Watchdog {
     }
 
     const wallet = await this.walletPromise;
+    const signerAddress = wallet.address;
+    if (signerAddress.toLowerCase() !== from.toLowerCase()) {
+      throw new Error(
+        `Signer address mismatch: private key controls ${signerAddress} but expected ${from}. ` +
+          `The configured private key must correspond to the monitored wallet address.`,
+      );
+    }
+
     const tx = await wallet.sendTransaction({ to, data });
     const receipt = await tx.wait();
     if (!receipt || receipt.status === 0) {
