@@ -18,6 +18,7 @@ Implemented:
   - per-loan cooldown logic
   - signer/private-key wallet address safety check
 - Monitor integration (watchdog runs after alert processing each poll)
+- Monitor runs when at least one wallet is enabled, even if Telegram alerts are disabled
 - `GET /api/watchdog/status` endpoint for status and recent log
 - Watchdog config exposed via `GET /api/config` and `PUT /api/config`
 - `/watchdog` Telegram command showing status and recent actions
@@ -65,6 +66,7 @@ Environment overrides:
 - `WATCHDOG_TARGET_HF`
 
 Both must be positive numbers to apply.
+`targetHF` must also be strictly greater than `triggerHF`.
 
 ## Private Key and Wallet Safety
 
@@ -126,6 +128,7 @@ Suggested starter values:
 No actions happening:
 
 - Check `enabled` and that adjusted HF is below `triggerHF`.
+- Confirm at least one monitored wallet is enabled in config.
 - Confirm debt asset is in supported stablecoin set.
 - Confirm cooldown is not active.
 

@@ -42,6 +42,7 @@ Backend server notes:
 - Fully paid-off / zero-value positions are filtered out of both dashboard data and Telegram status output.
 - Watchdog user-facing docs live in `docs/watchdog-user-manual.md`.
 - Watchdog is fully wired: monitor integration, `GET /api/watchdog/status` endpoint, `/watchdog` Telegram command, and config via `GET/PUT /api/config`.
+- Monitor runtime is driven by enabled wallets (not Telegram enablement), so watchdog polling can run without Telegram configured.
 
 Frontend notes:
 

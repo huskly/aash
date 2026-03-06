@@ -185,6 +185,20 @@ test('cooldown prevents re-execution during consecutive evaluations', async () =
   assert.equal(executeCalled, 1);
 });
 
+test('cooldown skip is added to action log', async () => {
+  const { watchdog } = createWatchdog(createConfig({ dryRun: true }));
+  const balances = new Map<string, number>([['USDC', 1_000]]);
+
+  await watchdog.evaluate(createLoan(), WALLET, balances);
+  await watchdog.evaluate(createLoan(), WALLET, balances);
+
+  const log = watchdog.getLog();
+  assert.equal(log.length, 2);
+  assert.equal(log[0]!.action, 'skipped');
+  assert.match(log[0]!.reason, /Cooldown active/);
+  assert.equal(log[1]!.action, 'dry-run');
+});
+
 test('repayment amount is capped by maxRepayUsd and can include withdraw funding', async () => {
   const { watchdog } = createWatchdog(createConfig({ maxRepayUsd: 100 }));
   const balances = new Map<string, number>([['USDC', 50]]);

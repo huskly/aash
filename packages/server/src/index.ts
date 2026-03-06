@@ -13,6 +13,11 @@ import {
 import { ConfigStorage, type AlertConfig, type WatchdogConfig } from './storage.js';
 import { TelegramClient } from './telegram.js';
 import { Monitor } from './monitor.js';
+import {
+  formatWatchdogStatusMessage,
+  shouldRunMonitor,
+  validateWatchdogThresholds,
+} from './runtime.js';
 
 const partialAlertConfigSchema = z
   .object({
@@ -108,10 +113,7 @@ function syncRuntimeServices(options: { restartMonitor?: boolean } = {}): void {
     telegram.stopCommandPolling();
   }
 
-  const shouldRunMonitor = Boolean(
-    config.telegram.enabled && config.telegram.chatId && TELEGRAM_BOT_TOKEN,
-  );
-  if (shouldRunMonitor) {
+  if (shouldRunMonitor(config)) {
     if (restartMonitor) {
       monitor.restart();
     } else {
@@ -119,7 +121,7 @@ function syncRuntimeServices(options: { restartMonitor?: boolean } = {}): void {
     }
   } else {
     monitor.stop();
-    console.log('Monitor not started: telegram not configured or enabled');
+    console.log('Monitor not started: no enabled wallets');
   }
 }
 
@@ -156,6 +158,11 @@ app.put('/api/config', (req, res) => {
   const parsed = parseConfigBody(req.body);
   if ('error' in parsed) {
     res.status(400).json({ error: parsed.error });
+    return;
+  }
+  const watchdogError = validateWatchdogThresholds(storage.get().watchdog, parsed.data.watchdog);
+  if (watchdogError) {
+    res.status(400).json({ error: watchdogError });
     return;
   }
   const updated = storage.update(parsed.data);
@@ -361,28 +368,7 @@ telegram.onCommand('refresh', async (chatId) => {
 telegram.onCommand('watchdog', async (chatId) => {
   const summary = monitor.watchdog.getStatusSummary();
   const log = monitor.watchdog.getLog();
-  const recent = log.slice(0, 5);
-
-  const lines = [
-    '<b>Watchdog Status</b>',
-    '',
-    `Enabled: <b>${summary.enabled ? 'Yes' : 'No'}</b>`,
-    `Mode: <b>${summary.dryRun ? 'Dry Run' : 'Live'}</b>`,
-    `Private Key: <b>${summary.hasPrivateKey ? 'Configured' : 'Not set'}</b>`,
-    `Trigger HF: <b>${summary.triggerHF}</b>`,
-    `Target HF: <b>${summary.targetHF}</b>`,
-    `Total actions logged: ${summary.recentActions}`,
-  ];
-
-  if (recent.length > 0) {
-    lines.push('', '<b>Recent Actions</b>');
-    for (const entry of recent) {
-      const time = new Date(entry.timestamp).toLocaleString();
-      lines.push(`${time} · <b>${entry.action}</b> · ${entry.reason}`);
-    }
-  }
-
-  await telegram.sendMessage(chatId, lines.join('\n'));
+  await telegram.sendMessage(chatId, formatWatchdogStatusMessage(summary, log));
 });
 
 telegram.onCommand('help', async (chatId) => {

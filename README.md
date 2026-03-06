@@ -176,6 +176,7 @@ Detailed user manual: **[docs/watchdog-user-manual.md](docs/watchdog-user-manual
 The watchdog monitors loan health and can automatically repay stablecoin debt to prevent liquidation. It uses an "adjusted HF" that excludes same-asset collateral to make safe repay decisions.
 
 - Runs after each monitor poll, evaluating all loans
+- Monitor polling runs when at least one wallet is enabled (Telegram can stay disabled)
 - Dry-run mode by default (notifies what _would_ happen, no on-chain transactions)
 - Live mode requires `WATCHDOG_PRIVATE_KEY` env var
 - API: `GET /api/watchdog/status` for status and recent action log
