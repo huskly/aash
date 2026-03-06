@@ -1,4 +1,4 @@
-import type { AaveMarket } from './types.js';
+import type { AaveMarket, PollingConfig, WatchdogConfig } from './types.js';
 
 export const AAVE_MARKETS: readonly AaveMarket[] = [
   {
@@ -76,3 +76,20 @@ export const STABLECOIN_CONTRACTS: Record<string, { address: string; decimals: n
 export const DEFAULT_R_DEPLOY = 0.1125;
 
 export const ETHEREUM_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+
+export const DEFAULT_POLLING_CONFIG: PollingConfig = {
+  intervalMs: 5 * 60 * 1000,
+  debounceChecks: 2,
+  reminderIntervalMs: 30 * 60 * 1000,
+  cooldownMs: 30 * 60 * 1000,
+};
+
+export const DEFAULT_WATCHDOG_CONFIG: WatchdogConfig = {
+  enabled: false,
+  dryRun: true,
+  triggerHF: 1.25,
+  targetHF: 1.5,
+  cooldownMs: 30 * 60 * 1000,
+  maxRepayUsd: 10_000,
+  maxGasGwei: 50,
+};

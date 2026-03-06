@@ -1,6 +1,12 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { ZoneName } from '@aave-monitor/core';
+import {
+  DEFAULT_POLLING_CONFIG,
+  DEFAULT_WATCHDOG_CONFIG,
+  type PollingConfig,
+  type WatchdogConfig as CoreWatchdogConfig,
+  type ZoneName,
+} from '@aave-monitor/core';
 
 export type WalletConfig = {
   address: string;
@@ -14,15 +20,7 @@ export type ZoneConfig = {
   maxHF: number;
 };
 
-export type WatchdogConfig = {
-  enabled: boolean;
-  dryRun: boolean;
-  triggerHF: number;
-  targetHF: number;
-  cooldownMs: number;
-  maxRepayUsd: number;
-  maxGasGwei: number;
-};
+export type WatchdogConfig = CoreWatchdogConfig;
 
 export type AlertConfig = {
   wallets: WalletConfig[];
@@ -30,24 +28,9 @@ export type AlertConfig = {
     chatId: string;
     enabled: boolean;
   };
-  polling: {
-    intervalMs: number;
-    debounceChecks: number;
-    reminderIntervalMs: number;
-    cooldownMs: number;
-  };
+  polling: PollingConfig;
   zones: ZoneConfig[];
   watchdog: WatchdogConfig;
-};
-
-const DEFAULT_WATCHDOG_CONFIG: WatchdogConfig = {
-  enabled: false,
-  dryRun: true,
-  triggerHF: 1.25,
-  targetHF: 1.5,
-  cooldownMs: 30 * 60 * 1000,
-  maxRepayUsd: 10_000,
-  maxGasGwei: 50,
 };
 
 const DEFAULT_CONFIG: AlertConfig = {
@@ -56,12 +39,7 @@ const DEFAULT_CONFIG: AlertConfig = {
     chatId: '',
     enabled: false,
   },
-  polling: {
-    intervalMs: 5 * 60 * 1000,
-    debounceChecks: 2,
-    reminderIntervalMs: 30 * 60 * 1000,
-    cooldownMs: 30 * 60 * 1000,
-  },
+  polling: { ...DEFAULT_POLLING_CONFIG },
   zones: [
     { name: 'safe', minHF: 2.2, maxHF: Infinity },
     { name: 'comfort', minHF: 1.9, maxHF: 2.2 },
