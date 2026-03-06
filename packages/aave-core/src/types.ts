@@ -1,5 +1,22 @@
 export type BadgeTone = 'neutral' | 'positive' | 'warning' | 'danger';
 
+export type PollingConfig = {
+  intervalMs: number;
+  debounceChecks: number;
+  reminderIntervalMs: number;
+  cooldownMs: number;
+};
+
+export type WatchdogConfig = {
+  enabled: boolean;
+  dryRun: boolean;
+  triggerHF: number;
+  targetHF: number;
+  cooldownMs: number;
+  maxRepayUsd: number;
+  maxGasGwei: number;
+};
+
 export type RawUserReserve = {
   currentATokenBalance: string;
   currentTotalDebt: string;

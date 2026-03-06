@@ -7,14 +7,18 @@ export type {
   Computed,
   FetchState,
   LoanPosition,
+  PollingConfig,
   RawUserReserve,
   RawUserReserveWithMarket,
+  WatchdogConfig,
 } from './types.js';
 
 export {
   AAVE_MARKETS,
   COINGECKO_IDS_BY_SYMBOL,
+  DEFAULT_POLLING_CONFIG,
   DEFAULT_R_DEPLOY,
+  DEFAULT_WATCHDOG_CONFIG,
   ETHEREUM_ADDRESS_REGEX,
   STABLECOIN_CONTRACTS,
   STABLECOIN_SYMBOLS,
