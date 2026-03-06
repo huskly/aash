@@ -107,10 +107,17 @@ yarn dev:all       # start both frontend and server
 yarn typecheck     # TypeScript checks (frontend + core package + server package)
 yarn lint          # ESLint
 yarn format        # Prettier format
+yarn test          # Server watchdog/config test suite
 yarn build         # production frontend build
 yarn build:server  # production server build
 yarn preview       # preview production build
 ```
+
+Server test suite details:
+
+- Location: `packages/server/test/*.test.ts`
+- Runner: Node built-in test runner via `tsx --test`
+- Current coverage focus: watchdog execution/cooldown behavior and watchdog config migration/merge logic
 
 ## Docker Compose
 
@@ -161,6 +168,15 @@ Quick start:
 3. Run `yarn dev:server` to start the monitor.
 4. Use the bell icon in the dashboard to configure alerts.
 5. If monitor status appears stale, trigger an immediate refresh with `POST /api/status/refresh` (see docs).
+
+## Watchdog (In Development)
+
+Detailed user manual: **[docs/watchdog-user-manual.md](docs/watchdog-user-manual.md)**.
+
+Current status:
+
+- Watchdog engine/config logic is implemented and tested.
+- Full end-to-end runtime wiring (monitor/API/Telegram command surfaces) is still being finalized.
 
 ## How It Works
 

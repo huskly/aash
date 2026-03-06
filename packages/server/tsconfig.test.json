@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@aave-monitor/core": ["../aave-core/src/index.ts"]
+    },
+    "rootDir": ".."
+  }
+}
