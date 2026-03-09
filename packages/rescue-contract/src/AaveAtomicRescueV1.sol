@@ -14,8 +14,6 @@ interface IERC20Metadata {
 interface IAavePool {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
 
-    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
-
     function getUserAccountData(address user)
         external
         view
@@ -52,21 +50,6 @@ interface IAaveProtocolDataProvider {
             bool stableBorrowRateEnabled,
             bool isActive,
             bool isFrozen
-        );
-
-    function getUserReserveData(address asset, address user)
-        external
-        view
-        returns (
-            uint256 currentATokenBalance,
-            uint256 currentStableDebt,
-            uint256 currentVariableDebt,
-            uint256 principalStableDebt,
-            uint256 scaledVariableDebt,
-            uint256 stableBorrowRate,
-            uint256 liquidityRate,
-            uint40 stableRateLastUpdated,
-            bool usageAsCollateralEnabled
         );
 }
 
@@ -154,7 +137,6 @@ contract AaveAtomicRescueV1 {
         _forceApprove(params.asset, address(pool), params.amount);
 
         pool.supply(params.asset, params.amount, params.user, 0);
-        _ensureCollateralEnabled(params.asset, params.user);
 
         (, , , , , uint256 hfAfter) = pool.getUserAccountData(params.user);
         if (hfAfter < params.minResultingHF) {
@@ -210,13 +192,6 @@ contract AaveAtomicRescueV1 {
             weightedBefore + ((addedCollateralBase * liquidationThreshold) / BPS_DENOMINATOR);
 
         return (weightedAfter * WAD) / totalDebtBase;
-    }
-
-    function _ensureCollateralEnabled(address asset, address user) internal {
-        (, , , , , , , , bool usageAsCollateralEnabled) = dataProvider.getUserReserveData(asset, user);
-        if (!usageAsCollateralEnabled) {
-            pool.setUserUseReserveAsCollateral(asset, true);
-        }
     }
 
     function _transferIn(address asset, address from, uint256 amount) internal {

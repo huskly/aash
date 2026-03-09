@@ -70,11 +70,6 @@ contract MockPool {
         data.healthFactor += 0.2e18;
     }
 
-    mapping(address => mapping(address => bool)) public collateralEnabled;
-
-    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external {
-        collateralEnabled[msg.sender][asset] = useAsCollateral;
-    }
 }
 
 contract MockAddressesProvider {
@@ -110,15 +105,6 @@ contract MockDataProvider {
         returns (uint256, uint256, uint256, uint256, uint256, bool, bool, bool, bool, bool)
     {
         return (8, 7_000, liquidationThreshold, 0, 0, true, true, false, true, false);
-    }
-
-    function getUserReserveData(address, address)
-        external
-        pure
-        returns (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint40, bool)
-    {
-        // Always returns collateral disabled so rescue contract calls pool.setUserUseReserveAsCollateral
-        return (0, 0, 0, 0, 0, 0, 0, 0, false);
     }
 }
 

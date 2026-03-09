@@ -58,6 +58,7 @@ Live mode requires:
 - signer address matches monitored wallet
 - monitored wallet has WBTC balance
 - monitored wallet has approved `rescueContract` to pull WBTC
+- WBTC is enabled as collateral on the user's Aave position (`pool.setUserUseReserveAsCollateral(WBTC, true)` called once from the monitored wallet)
 
 ## Dry Run vs Live
 

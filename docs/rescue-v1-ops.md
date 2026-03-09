@@ -55,6 +55,7 @@ forge script script/DeployAaveAtomicRescueV1.s.sol --root packages/rescue-contra
 - Signer address matches monitored wallet.
 - Wallet holds WBTC and has allowance to rescue contract.
 - Rescue contract has WBTC enabled as supported asset.
+- **WBTC must be enabled as collateral on the user's Aave position.** The rescue contract supplies WBTC on behalf of the user but cannot toggle the collateral flag for another address. Call `pool.setUserUseReserveAsCollateral(WBTC, true)` from the monitored wallet once before activating live mode.
 
 ## Common Incident Checks
 
