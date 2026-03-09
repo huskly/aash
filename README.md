@@ -114,7 +114,7 @@ yarn format        # Prettier format
 yarn test          # Server watchdog/config test suite
 yarn test:contracts # Foundry smart contract tests (packages/rescue-contract)
 yarn build         # production frontend build
-yarn build:server  # production server build
+yarn build:server  # production server build (includes @aave-monitor/core via TS project references)
 yarn preview       # preview production build
 ```
 

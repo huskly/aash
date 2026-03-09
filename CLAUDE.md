@@ -38,6 +38,7 @@ Configured via `.env` in project root (prefixed with `VITE_` for Vite exposure):
 Backend server notes:
 
 - `packages/server` auto-loads the root `.env` on startup.
+- `packages/server` uses a TypeScript project reference to `packages/aave-core`; `yarn workspace @aave-monitor/server build` builds the referenced core package first and consumes its emitted declarations instead of importing core source files directly.
 - Backend Graph/CoinGecko keys are read from `VITE_THE_GRAPH_API_KEY` and `VITE_COINGECKO_API_KEY` (legacy non-`VITE_` names still work as fallback).
 - `POST /api/status/refresh` forces an immediate monitor recomputation and returns fresh `/api/status` payload.
 - Telegram `/status` includes portfolio average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and collateral margin of safety (USD and %) alongside per-loan health factors. Telegram alerts include per-asset liquidation prices for each collateral asset.
