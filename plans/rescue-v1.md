@@ -2,7 +2,7 @@
 
 ## Project Goal
 
-Maximize productive capital while preserving tax cleanliness and liquidation safety by supplying WETH/WBTC on Aave and borrowing USDC against it, then using the borrowed USDC for higher-yield external deployment. The rescue system should prioritize **non-taxable, operationally simple, on-chain protection** over maximum capital efficiency. :contentReference[oaicite:0]{index=0}
+Maximize productive capital while preserving tax cleanliness and liquidation safety by supplying WETH/WBTC on Aave and borrowing USDC against it, then using the borrowed USDC for higher-yield external deployment. The rescue system should prioritize **non-taxable, operationally simple, on-chain protection** over maximum capital efficiency.
 
 ---
 
