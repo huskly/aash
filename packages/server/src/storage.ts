@@ -70,6 +70,12 @@ function applyWatchdogEnvOverrides(watchdog: WatchdogConfig): void {
 
   const maxTopUpWbtc = parseEnvFloat('WATCHDOG_MAX_TOP_UP_WBTC');
   if (maxTopUpWbtc !== undefined) watchdog.maxTopUpWbtc = maxTopUpWbtc;
+
+  const deadlineSeconds = parseEnvFloat('WATCHDOG_DEADLINE_SECONDS');
+  if (deadlineSeconds !== undefined) watchdog.deadlineSeconds = deadlineSeconds;
+
+  const rescueContract = process.env['WATCHDOG_RESCUE_CONTRACT']?.trim();
+  if (rescueContract) watchdog.rescueContract = rescueContract;
 }
 
 function mergeWatchdogConfig(config: Partial<WatchdogConfig> | undefined): WatchdogConfig {

@@ -30,6 +30,8 @@ Configured via `.env` in project root (prefixed with `VITE_` for Vite exposure):
 - `WATCHDOG_PRIVATE_KEY` — optional private key for watchdog live mode (atomic rescue); omit for dry-run only
 - `WATCHDOG_MIN_RESULTING_HF` — optional override for minimum required post-rescue HF
 - `WATCHDOG_MAX_TOP_UP_WBTC` — optional override for max WBTC top-up per rescue action
+- `WATCHDOG_DEADLINE_SECONDS` — optional override for rescue transaction deadline in seconds
+- `WATCHDOG_RESCUE_CONTRACT` — optional override for rescue contract address
 - `TELEGRAM_BOT_TOKEN` — backend Telegram bot token (loaded from root `.env`)
 - `PORT` — optional backend port (default `3001`)
 

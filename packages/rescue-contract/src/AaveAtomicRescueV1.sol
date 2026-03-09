@@ -134,7 +134,7 @@ contract AaveAtomicRescueV1 {
         (, , , , , uint256 hfBefore) = pool.getUserAccountData(params.user);
 
         _transferIn(params.asset, params.user, params.amount);
-        _forceApprove(params.asset, address(pool), params.amount);
+        _forceApprove(params.asset, address(pool));
 
         pool.supply(params.asset, params.amount, params.user, 0);
 
@@ -199,14 +199,14 @@ contract AaveAtomicRescueV1 {
         if (!ok) revert TokenTransferFailed();
     }
 
-    function _forceApprove(address asset, address spender, uint256 amount) internal {
+    function _forceApprove(address asset, address spender) internal {
         uint256 current = IERC20(asset).allowance(address(this), spender);
-        if (current < amount) {
+        if (current < type(uint256).max) {
             if (current != 0) {
                 bool resetOk = IERC20(asset).approve(spender, 0);
                 if (!resetOk) revert TokenApproveFailed();
             }
-            bool ok = IERC20(asset).approve(spender, amount);
+            bool ok = IERC20(asset).approve(spender, type(uint256).max);
             if (!ok) revert TokenApproveFailed();
         }
     }
