@@ -207,6 +207,43 @@ contract AaveAtomicRescueV1Test is Test {
         assertGe(hfAfter, 1.3e18);
     }
 
+    function test_reverts_if_resulting_hf_too_low() external {
+        // Mock pool only adds 0.2e18 per supply call, so starting HF 1.2e18 → 1.4e18.
+        // Requiring 2.0e18 should revert.
+        AaveAtomicRescueV1.RescueParams memory params = AaveAtomicRescueV1.RescueParams({
+            user: user,
+            asset: address(token),
+            amount: 10_000_000,
+            minResultingHF: 2.0e18,
+            deadline: block.timestamp + 10
+        });
+
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(AaveAtomicRescueV1.ResultingHFTooLow.selector, 1.4e18, 2.0e18)
+        );
+        rescue.rescue(params);
+    }
+
+    function test_reverts_if_asset_not_supported() external {
+        MockToken unsupported = new MockToken();
+        unsupported.mint(user, 1_000_000_000);
+        vm.prank(user);
+        unsupported.approve(address(rescue), type(uint256).max);
+
+        AaveAtomicRescueV1.RescueParams memory params = AaveAtomicRescueV1.RescueParams({
+            user: user,
+            asset: address(unsupported),
+            amount: 10_000_000,
+            minResultingHF: 1.1e18,
+            deadline: block.timestamp + 10
+        });
+
+        vm.prank(owner);
+        vm.expectRevert(AaveAtomicRescueV1.AssetNotSupported.selector);
+        rescue.rescue(params);
+    }
+
     function test_preview_increases_with_amount() external {
         uint256 hf0 = rescue.previewResultingHF(user, address(token), 0);
         uint256 hf1 = rescue.previewResultingHF(user, address(token), 10_000_000);

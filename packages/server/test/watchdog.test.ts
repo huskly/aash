@@ -227,3 +227,53 @@ test('invalid rescue contract produces skipped log entry', async () => {
   assert.equal(log[0]?.action, 'skipped');
   assert.match(log[0]?.reason ?? '', /Invalid or missing rescueContract/);
 });
+
+test('failed rescue tx logs error, sets cooldown, and notifies', async () => {
+  const { watchdog, messages } = createWatchdog(createConfig({ dryRun: false }));
+
+  (watchdog as unknown as { getTokenBalance: () => Promise<bigint> }).getTokenBalance = async () =>
+    100_000_000n;
+  (
+    watchdog as unknown as {
+      getTokenAllowance: () => Promise<bigint>;
+    }
+  ).getTokenAllowance = async () => 100_000_000n;
+  (
+    watchdog as unknown as {
+      findRequiredAmountRaw: () => Promise<bigint | null>;
+    }
+  ).findRequiredAmountRaw = async () => 1_000_000n;
+  (
+    watchdog as unknown as {
+      previewResultingHF: () => Promise<bigint>;
+    }
+  ).previewResultingHF = async () => 1_900_000_000_000_000_000n;
+  (
+    watchdog as unknown as {
+      getGasPriceGwei: () => Promise<number>;
+    }
+  ).getGasPriceGwei = async () => 10;
+  (watchdog as unknown as { getEthBalance: () => Promise<number> }).getEthBalance = async () => 1;
+  (
+    watchdog as unknown as {
+      submitRescueTransaction: () => Promise<string>;
+    }
+  ).submitRescueTransaction = async () => {
+    throw new Error('Transaction reverted: 0xdead');
+  };
+
+  await watchdog.evaluate(createLoan(), WALLET);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'skipped');
+  assert.match(log[0]?.reason ?? '', /Rescue tx failed/);
+  assert.match(log[0]?.reason ?? '', /Transaction reverted/);
+
+  // Cooldown should be set to prevent retry flooding
+  const cooldowns = (watchdog as unknown as { cooldowns: Map<string, number> }).cooldowns;
+  assert.equal(cooldowns.has(`${WALLET}-loan-1`), true);
+
+  // Notification should be sent
+  assert.equal(messages.length, 1);
+  assert.match(messages[0]!, /Rescue failed/);
+});

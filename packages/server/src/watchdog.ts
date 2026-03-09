@@ -288,34 +288,56 @@ export class Watchdog {
     }
 
     const deadline = Math.floor(Date.now() / 1000) + config.deadlineSeconds;
-    const txHash = await this.submitRescueTransaction(
-      walletAddress,
-      rescueContract,
-      amountRaw,
-      minHFWad,
-      deadline,
-    );
+    try {
+      const txHash = await this.submitRescueTransaction(
+        walletAddress,
+        rescueContract,
+        amountRaw,
+        minHFWad,
+        deadline,
+      );
 
-    this.addLog({
-      timestamp: now,
-      loanId: loan.id,
-      wallet: walletAddress,
-      action: 'rescue',
-      reason: `Rescue submitted with ${topUpWbtc.toFixed(8)} WBTC`,
-      healthFactor,
-      topUpWbtc,
-      projectedHF,
-      txHash,
-    });
-    this.cooldowns.set(stateKey, Date.now());
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        action: 'rescue',
+        reason: `Rescue submitted with ${topUpWbtc.toFixed(8)} WBTC`,
+        healthFactor,
+        topUpWbtc,
+        projectedHF,
+        txHash,
+      });
+      this.cooldowns.set(stateKey, Date.now());
 
-    await this.notify(
-      `✅ <b>Watchdog: Atomic rescue executed</b>\n\n` +
-        `Loan: ${loan.id} (${loan.marketName})\n` +
-        `Top-up: <b>${topUpWbtc.toFixed(8)} WBTC</b>\n` +
-        `Projected HF: <b>${projectedHF.toFixed(4)}</b>\n` +
-        `Tx: <code>${txHash}</code>`,
-    );
+      await this.notify(
+        `✅ <b>Watchdog: Atomic rescue executed</b>\n\n` +
+          `Loan: ${loan.id} (${loan.marketName})\n` +
+          `Top-up: <b>${topUpWbtc.toFixed(8)} WBTC</b>\n` +
+          `Projected HF: <b>${projectedHF.toFixed(4)}</b>\n` +
+          `Tx: <code>${txHash}</code>`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        action: 'skipped',
+        reason: `Rescue tx failed: ${message}`,
+        healthFactor,
+        topUpWbtc,
+        projectedHF,
+      });
+      this.cooldowns.set(stateKey, Date.now());
+
+      await this.notify(
+        `❌ <b>Watchdog: Rescue failed</b>\n\n` +
+          `Loan: ${loan.id} (${loan.marketName})\n` +
+          `Top-up attempted: <b>${topUpWbtc.toFixed(8)} WBTC</b>\n` +
+          `Error: ${message}`,
+      );
+    }
   }
 
   private async findRequiredAmountRaw(
