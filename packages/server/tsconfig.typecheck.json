@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "rootDir": "..",
+    "baseUrl": ".",
+    "paths": {
+      "@aave-monitor/core": ["../aave-core/src/index.ts"]
+    }
+  },
+  "include": ["src", "../aave-core/src"]
+}
