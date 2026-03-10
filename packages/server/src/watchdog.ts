@@ -397,8 +397,19 @@ export class Watchdog {
     const verifiedHF = await this.previewResultingHF(provider, rescueContract, user, clamped);
     if (verifiedHF >= targetHF) return clamped;
 
-    // Estimate undershot (shouldn't happen with round-up, but handle gracefully).
-    // Use maxAmount since we already know it achieves the target.
+    // Estimate undershot (oracle drift between preview calls). Refine once: interpolate
+    // between the undershot estimate (verifiedHF) and maxAmount (maxHF) to avoid
+    // falling back to the full maxAmount unnecessarily.
+    if (verifiedHF < targetHF && maxHF > verifiedHF) {
+      const gap = maxAmount - clamped;
+      const refinedEstimate =
+        clamped + (gap * (targetHF - verifiedHF)) / (maxHF - verifiedHF) + 1n;
+      const refinedClamped = refinedEstimate > maxAmount ? maxAmount : refinedEstimate;
+      const refinedHF = await this.previewResultingHF(provider, rescueContract, user, refinedClamped);
+      if (refinedHF >= targetHF) return refinedClamped;
+    }
+
+    // Last resort: use maxAmount since we already know it achieves the target.
     return maxAmount;
   }
 
