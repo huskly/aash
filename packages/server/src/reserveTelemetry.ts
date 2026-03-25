@@ -80,10 +80,13 @@ export async function fetchReserveTelemetry(
     dataProvider.getInterestRateStrategyAddress(reserveAddress),
   ]);
 
-  const strategy = new Contract(strategyAddress, DEFAULT_INTEREST_RATE_STRATEGY_V2_ABI, provider) as
-    Contract & {
-      getInterestRateData(asset: string): Promise<InterestRateData>;
-    };
+  const strategy = new Contract(
+    strategyAddress,
+    DEFAULT_INTEREST_RATE_STRATEGY_V2_ABI,
+    provider,
+  ) as Contract & {
+    getInterestRateData(asset: string): Promise<InterestRateData>;
+  };
   const interestRateData = await strategy.getInterestRateData(reserveAddress);
 
   const decimals = Number(configData.decimals);
