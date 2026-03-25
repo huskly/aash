@@ -20,6 +20,7 @@ import {
   validateWatchdogThresholds,
 } from './runtime.js';
 import { logger } from './logger.js';
+import { fetchReserveTelemetry } from './reserveTelemetry.js';
 
 const partialAlertConfigSchema = z
   .object({
@@ -71,6 +72,12 @@ const tokenBalanceRequestSchema = z.object({
       decimals: z.number().int().min(0).max(255),
     }),
   ),
+});
+
+const reserveTelemetryQuerySchema = z.object({
+  market: z.string().min(1),
+  asset: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  symbol: z.string().optional(),
 });
 
 type ConfigUpdate = Partial<Omit<AlertConfig, 'watchdog'>> & {
@@ -281,6 +288,25 @@ app.post('/api/balances/:wallet', async (req, res) => {
     res.json(Object.fromEntries(balances));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to fetch balances';
+    res.status(502).json({ error: message });
+  }
+});
+
+app.get('/api/reserves/telemetry', async (req, res) => {
+  const parsed = reserveTelemetryQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid market or asset address' });
+    return;
+  }
+
+  try {
+    const telemetry = await fetchReserveTelemetry(parsed.data.market, parsed.data.asset, RPC_URL);
+    res.json({
+      ...telemetry,
+      symbol: parsed.data.symbol?.trim() || telemetry.symbol,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to fetch reserve telemetry';
     res.status(502).json({ error: message });
   }
 });

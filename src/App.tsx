@@ -15,9 +15,15 @@ import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Input } from './components/ui/input';
 import { Separator } from './components/ui/separator';
 import {
+  BorrowRateHistoryCard,
+  type BorrowRateSample,
+  UtilizationCurveCard,
+} from './components/ReserveCharts';
+import {
   type BadgeTone,
   type AssetPosition,
   type FetchState,
+  type ReserveTelemetry,
   type LoanPosition,
   ETHEREUM_ADDRESS_REGEX,
   DEFAULT_R_DEPLOY,
@@ -38,6 +44,9 @@ const R_DEPLOY_ENV = import.meta.env.VITE_R_DEPLOY as string | undefined;
 const R_DEPLOY = parseDeployRate(R_DEPLOY_ENV, DEFAULT_R_DEPLOY);
 const UPDATE_RATE_MS = 120_000;
 const LAST_WALLET_STORAGE_KEY = 'aave-monitor:last-wallet';
+const BORROW_RATE_HISTORY_STORAGE_PREFIX = 'aave-monitor:borrow-apr-history';
+const BORROW_RATE_SAMPLE_INTERVAL_MS = 15 * 60 * 1000;
+const MAX_BORROW_RATE_SAMPLES = 2_000;
 
 async function fetchWalletCollateralBalances(
   wallet: string,
@@ -114,6 +123,77 @@ function toBadgeVariant(tone: BadgeTone): BadgeVariant {
   return 'default';
 }
 
+function buildBorrowRateHistoryKey(marketName: string, assetAddress: string): string {
+  return `${BORROW_RATE_HISTORY_STORAGE_PREFIX}:${marketName}:${assetAddress.toLowerCase()}`;
+}
+
+function readBorrowRateHistory(storageKey: string): BorrowRateSample[] {
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw) as BorrowRateSample[];
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter(
+      (entry) =>
+        typeof entry?.timestamp === 'string' &&
+        typeof entry?.variableBorrowRate === 'number' &&
+        typeof entry?.utilizationRate === 'number',
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeBorrowRateHistory(storageKey: string, samples: BorrowRateSample[]): void {
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(samples));
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function appendBorrowRateSample(
+  samples: BorrowRateSample[],
+  nextSample: BorrowRateSample,
+): BorrowRateSample[] {
+  const nextTimestamp = new Date(nextSample.timestamp).getTime();
+  if (!Number.isFinite(nextTimestamp)) return samples;
+
+  const previous = samples.at(-1);
+  if (previous) {
+    const previousTimestamp = new Date(previous.timestamp).getTime();
+    if (
+      Number.isFinite(previousTimestamp) &&
+      nextTimestamp - previousTimestamp < BORROW_RATE_SAMPLE_INTERVAL_MS
+    ) {
+      const updated = [...samples.slice(0, -1), nextSample];
+      return updated.slice(-MAX_BORROW_RATE_SAMPLES);
+    }
+  }
+
+  return [...samples, nextSample].slice(-MAX_BORROW_RATE_SAMPLES);
+}
+
+async function fetchReserveTelemetry(
+  marketName: string,
+  assetAddress: string,
+  symbol: string,
+): Promise<ReserveTelemetry> {
+  const params = new URLSearchParams({
+    market: marketName,
+    asset: assetAddress,
+    symbol,
+  });
+  const res = await fetch(`/api/reserves/telemetry?${params.toString()}`);
+  if (!res.ok) {
+    throw new Error('Reserve telemetry is unavailable. Start the API server to enable the charts.');
+  }
+
+  return (await res.json()) as ReserveTelemetry;
+}
+
 export default function App() {
   const [wallet, setWallet] = useState(() => getInitialWallet());
   const [selectedLoanId, setSelectedLoanId] = useState<string>('');
@@ -123,6 +203,11 @@ export default function App() {
   const [walletCollateralBalances, setWalletCollateralBalances] = useState<Map<string, number>>(
     new Map(),
   );
+  const [selectedReserveTelemetry, setSelectedReserveTelemetry] = useState<ReserveTelemetry | null>(
+    null,
+  );
+  const [reserveTelemetryError, setReserveTelemetryError] = useState('');
+  const [borrowRateHistory, setBorrowRateHistory] = useState<BorrowRateSample[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const hasAutoFetchedInitialWallet = useRef(false);
 
@@ -269,6 +354,62 @@ export default function App() {
       window.clearInterval(timerId);
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedLoan) {
+      setSelectedReserveTelemetry(null);
+      setReserveTelemetryError('');
+      setBorrowRateHistory([]);
+      return;
+    }
+
+    const storageKey = buildBorrowRateHistoryKey(
+      selectedLoan.marketName,
+      selectedLoan.borrowed.address,
+    );
+    setBorrowRateHistory(readBorrowRateHistory(storageKey));
+
+    let cancelled = false;
+    setSelectedReserveTelemetry(null);
+    setReserveTelemetryError('');
+
+    void fetchReserveTelemetry(
+      selectedLoan.marketName,
+      selectedLoan.borrowed.address,
+      selectedLoan.borrowed.symbol,
+    )
+      .then((telemetry) => {
+        if (cancelled) return;
+
+        setSelectedReserveTelemetry(telemetry);
+        setBorrowRateHistory((currentSamples) => {
+          const nextSamples = appendBorrowRateSample(currentSamples, {
+            timestamp: telemetry.lastUpdateTimestamp,
+            variableBorrowRate: telemetry.variableBorrowRate,
+            utilizationRate: telemetry.utilizationRate,
+          });
+          writeBorrowRateHistory(storageKey, nextSamples);
+          return nextSamples;
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setSelectedReserveTelemetry(null);
+        setReserveTelemetryError(
+          error instanceof Error ? error.message : 'Failed to fetch reserve telemetry.',
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    result?.lastUpdated,
+    selectedLoan?.borrowed.address,
+    selectedLoan?.borrowed.symbol,
+    selectedLoan?.marketName,
+    selectedLoan,
+  ]);
 
   const handleFetch = async (event: FormEvent) => {
     event.preventDefault();
@@ -634,6 +775,25 @@ export default function App() {
                         />
                       </CardContent>
                     </Card>
+
+                    {selectedReserveTelemetry ? (
+                      <UtilizationCurveCard reserve={selectedReserveTelemetry} />
+                    ) : reserveTelemetryError ? (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Interest Rate Model</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-sm text-muted-foreground">{reserveTelemetryError}</p>
+                        </CardContent>
+                      </Card>
+                    ) : null}
+
+                    <BorrowRateHistoryCard
+                      currentTimeMs={now}
+                      samples={borrowRateHistory}
+                      reserve={selectedReserveTelemetry}
+                    />
 
                     <div className="grid grid-cols-2 gap-4 max-[980px]:grid-cols-1">
                       <Card>

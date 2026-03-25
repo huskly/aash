@@ -36,6 +36,8 @@ A React + Vite dashboard that auto-loads Aave loan positions from a wallet addre
   - Liquidation price (primary-collateral approximation)
   - LTV, leverage, borrow headroom
   - Carry / Net APY summary
+  - Aave interest-rate model chart for the selected borrowed asset, including current utilization and the reserve kink
+  - Borrow APR history chart for the selected borrowed asset, built from locally stored reserve telemetry samples
   - Collateral margin of safety based on wallet balances that match supplied collateral assets
   - Monitoring checklist + sensitivity cards
 
@@ -91,9 +93,15 @@ yarn install --frozen-lockfile
 yarn dev
 ```
 
-4. Open the local URL shown by Vite (usually `http://localhost:5173`).
+4. Optional but recommended for the utilization curve, borrow APR history, wallet balance lookups, and alert settings API:
 
-5. Optional: prefill wallet from query string:
+```bash
+yarn dev:server
+```
+
+5. Open the local URL shown by Vite (usually `http://localhost:5173`).
+
+6. Optional: prefill wallet from query string:
 
 ```text
 http://localhost:5173/?wallet=0xYourEthereumAddress
@@ -202,10 +210,12 @@ The watchdog monitors loan health and can execute an atomic on-chain rescue when
 4. Token prices are fetched from CoinGecko.
 5. Portfolio-level aggregate metrics are computed across all active loans.
 6. Detailed metrics are computed and rendered per selected loan tab.
+7. When the API server is available, the dashboard also reads on-chain reserve telemetry for the selected borrowed asset and stores periodic borrow APR samples in browser `localStorage` to build the history chart over time.
 
 ## Limitations
 
 - Liquidation price is shown as a primary-collateral approximation for multi-collateral positions.
 - Coverage depends on the supported market list and indexer availability.
 - Metrics are simplified monitoring estimates, not a substitute for protocol-native risk engines.
+- Borrow APR history is forward-looking: it is sampled from each dashboard refresh and stored in the current browser, so newly visited assets start with an empty chart.
 - GitHub Pages deployments require proper repository secrets if API keys are needed at build time.

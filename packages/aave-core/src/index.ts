@@ -6,10 +6,12 @@ export type {
   BadgeTone,
   Computed,
   FetchState,
+  InterestRateCurvePoint,
   LoanPosition,
   PollingConfig,
   RawUserReserve,
   RawUserReserveWithMarket,
+  ReserveTelemetry,
   WatchdogConfig,
 } from './types.js';
 
@@ -44,6 +46,11 @@ export {
   portfolioHealthFactorBand,
   weightedAverage,
 } from './metrics.js';
+
+export {
+  buildVariableBorrowCurve,
+  computeVariableBorrowRateAtUtilization,
+} from './interestRate.js';
 
 export { buildLoanPositions, fetchFromAaveSubgraph } from './aave.js';
 

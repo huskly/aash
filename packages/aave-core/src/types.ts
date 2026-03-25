@@ -122,3 +122,23 @@ export type AaveMarket = {
   readonly graphSubgraphId: string;
   readonly fallbackEndpoints: readonly string[];
 };
+
+export type ReserveTelemetry = {
+  marketName: string;
+  assetAddress: string;
+  symbol: string;
+  availableLiquidity: number;
+  totalDebt: number;
+  utilizationRate: number;
+  variableBorrowRate: number;
+  baseVariableBorrowRate: number;
+  variableRateSlope1: number;
+  variableRateSlope2: number;
+  optimalUsageRatio: number;
+  lastUpdateTimestamp: string;
+};
+
+export type InterestRateCurvePoint = {
+  utilizationRate: number;
+  variableBorrowRate: number;
+};

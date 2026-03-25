@@ -42,6 +42,7 @@ Backend server notes:
 - `packages/server` typechecks through `packages/server/tsconfig.typecheck.json`, which resolves `@aave-monitor/core` to source for CI/local checks without requiring `packages/aave-core/dist` to exist first.
 - Backend Graph/CoinGecko keys are read from `VITE_THE_GRAPH_API_KEY` and `VITE_COINGECKO_API_KEY` (legacy non-`VITE_` names still work as fallback).
 - `POST /api/status/refresh` forces an immediate monitor recomputation and returns fresh `/api/status` payload.
+- `GET /api/reserves/telemetry?market=<market>&asset=<address>&symbol=<optional>` returns live on-chain reserve utilization and interest-rate-strategy parameters for the selected borrowed asset.
 - Telegram `/status` includes portfolio average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and collateral margin of safety (USD and %) alongside per-loan health factors. Telegram alerts include per-asset liquidation prices for each collateral asset.
 - Telegram `/status` includes `Last updated` with absolute timestamp + relative time (e.g. `3 minutes ago`).
 - Telegram command metadata (`/status`, `/refresh`, `/watchdog`, `/help`) is synced on server startup via `setMyCommands`, so Telegram slash-command suggestions stay current.
@@ -57,8 +58,10 @@ Backend server notes:
 Frontend notes:
 
 - `src/App.tsx` stores the last successfully loaded wallet under `localStorage['aave-monitor:last-wallet']`.
+- `src/App.tsx` also stores borrow APR history per market/asset in browser `localStorage` under the `aave-monitor:borrow-apr-history:*` prefix.
 - On page load, wallet resolution order is: query string (`wallet`, `address`, `walletAddress`) first, then saved local storage wallet.
 - The portfolio card labeled `Collateral margin of safety` is based on wallet-held balances of tokens that also appear in the loan's supplied collateral set; it does not include unrelated wallet assets.
+- The utilization curve and borrow APR history charts depend on the Express API server for on-chain reserve telemetry. Without `yarn dev:server` (or the unified Docker/server runtime), those charts fall back to an unavailable message.
 
 ## Architecture
 
