@@ -28,19 +28,21 @@ function createLoan(): LoanPosition {
   return {
     id: 'loan-1',
     marketName: 'proto_mainnet_v3',
-    borrowed: {
-      symbol: 'USDC',
-      address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-      decimals: 6,
-      amount: 1600,
-      usdPrice: 1,
-      usdValue: 1600,
-      collateralEnabled: false,
-      maxLTV: 0,
-      liqThreshold: 0,
-      supplyRate: 0,
-      borrowRate: 0.05,
-    },
+    borrowed: [
+      {
+        symbol: 'USDC',
+        address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+        decimals: 6,
+        amount: 1600,
+        usdPrice: 1,
+        usdValue: 1600,
+        collateralEnabled: false,
+        maxLTV: 0,
+        liqThreshold: 0,
+        supplyRate: 0,
+        borrowRate: 0.05,
+      },
+    ],
     supplied: [
       {
         symbol: 'WBTC',

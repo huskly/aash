@@ -356,7 +356,7 @@ export class Monitor {
     label: string | undefined,
     loan: {
       marketName: string;
-      borrowed: { symbol: string };
+      borrowed: { symbol: string }[];
       totalBorrowedUsd: number;
       totalSuppliedUsd: number;
     },
@@ -377,7 +377,7 @@ export class Monitor {
       '',
       `Wallet: <code>${walletLabel}</code>`,
       `Market: ${loan.marketName}`,
-      `Borrowed: $${loan.totalBorrowedUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${loan.borrowed.symbol} | Collateral: $${loan.totalSuppliedUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+      `Borrowed: $${loan.totalBorrowedUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${loan.borrowed.map((b) => b.symbol).join('+')} | Collateral: $${loan.totalSuppliedUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
       '',
       `Health Factor: <b>${hf}</b> · Adjusted: <b>${adjHf}</b>`,
       `Zone: ${zone.emoji} ${zone.label} (was ${previousZone.emoji} ${previousZone.label})`,
@@ -397,7 +397,7 @@ export class Monitor {
   private formatRecovery(
     address: string,
     label: string | undefined,
-    loan: { marketName: string; borrowed: { symbol: string } },
+    loan: { marketName: string; borrowed: { symbol: string }[] },
     metrics: { healthFactor: number; adjustedHF: number },
     zone: Zone,
     previousZone: Zone,
@@ -410,7 +410,7 @@ export class Monitor {
       `${zone.emoji} <b>IMPROVING</b> — Zone Recovery`,
       '',
       `Wallet: <code>${walletLabel}</code>`,
-      `Market: ${loan.marketName} · ${loan.borrowed.symbol}`,
+      `Market: ${loan.marketName} · ${loan.borrowed.map((b) => b.symbol).join('+')}`,
       `Health Factor: <b>${hf}</b> · Adjusted: <b>${adjHf}</b>`,
       `Zone: ${zone.emoji} ${zone.label} (was ${previousZone.emoji} ${previousZone.label})`,
     ].join('\n');
@@ -419,7 +419,7 @@ export class Monitor {
   private formatAllClear(
     address: string,
     label: string | undefined,
-    loan: { marketName: string; borrowed: { symbol: string } },
+    loan: { marketName: string; borrowed: { symbol: string }[] },
     metrics: { healthFactor: number; adjustedHF: number },
   ): string {
     const walletLabel = label ? `${label} (${this.shortAddr(address)})` : this.shortAddr(address);
@@ -430,7 +430,7 @@ export class Monitor {
       `\u{1F7E2} <b>ALL CLEAR</b> — Back to Safe`,
       '',
       `Wallet: <code>${walletLabel}</code>`,
-      `Market: ${loan.marketName} · ${loan.borrowed.symbol}`,
+      `Market: ${loan.marketName} · ${loan.borrowed.map((b) => b.symbol).join('+')}`,
       `Health Factor: <b>${hf}</b> · Adjusted: <b>${adjHf}</b>`,
       '',
       `All positions are healthy. Monitoring continues.`,
@@ -440,7 +440,7 @@ export class Monitor {
   private formatReminder(
     address: string,
     label: string | undefined,
-    loan: { marketName: string; borrowed: { symbol: string } },
+    loan: { marketName: string; borrowed: { symbol: string }[] },
     metrics: { healthFactor: number; adjustedHF: number },
     zone: Zone,
     stuckDurationMs: number,
@@ -454,7 +454,7 @@ export class Monitor {
       `${zone.emoji} <b>REMINDER</b> — Still in ${zone.label} zone`,
       '',
       `Wallet: <code>${walletLabel}</code>`,
-      `Market: ${loan.marketName} · ${loan.borrowed.symbol}`,
+      `Market: ${loan.marketName} · ${loan.borrowed.map((b) => b.symbol).join('+')}`,
       `Health Factor: <b>${hf}</b> · Adjusted: <b>${adjHf}</b>`,
       `Duration: ${timeAgo} ago`,
       `Action: ${zone.action}`,

@@ -52,7 +52,7 @@ export type AssetPosition = {
 export type LoanPosition = {
   id: string;
   marketName: string;
-  borrowed: AssetPosition;
+  borrowed: AssetPosition[];
   supplied: AssetPosition[];
   totalSuppliedUsd: number;
   totalBorrowedUsd: number;
