@@ -163,18 +163,22 @@ export function buildLoanPositions(
 
     const collateralSupplies = suppliedAssets.filter((asset) => asset.collateralEnabled);
 
-    return borrowedAssets
-      .map((borrowed, index) => ({
-        id: `${marketName}-${borrowed.address}-${index}`,
+    if (borrowedAssets.length === 0 && collateralSupplies.length === 0) return [];
+
+    const totalBorrowedUsd = borrowedAssets.reduce((sum, asset) => sum + asset.usdValue, 0);
+    const totalSuppliedUsd = collateralSupplies.reduce((sum, asset) => sum + asset.usdValue, 0);
+
+    if (totalBorrowedUsd < MIN_POSITION_USD && totalSuppliedUsd < MIN_POSITION_USD) return [];
+
+    return [
+      {
+        id: marketName,
         marketName,
-        borrowed,
+        borrowed: borrowedAssets,
         supplied: collateralSupplies,
-        totalBorrowedUsd: borrowed.usdValue,
-        totalSuppliedUsd: collateralSupplies.reduce((sum, asset) => sum + asset.usdValue, 0),
-      }))
-      .filter(
-        (loan) =>
-          loan.totalBorrowedUsd >= MIN_POSITION_USD || loan.totalSuppliedUsd >= MIN_POSITION_USD,
-      );
+        totalBorrowedUsd,
+        totalSuppliedUsd,
+      },
+    ];
   });
 }

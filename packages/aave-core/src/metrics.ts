@@ -90,10 +90,10 @@ export function parseDeployRate(value: string | undefined, defaultRate: number):
 
 export function computeAdjustedHF(loan: LoanPosition): AdjustedHFResult {
   const debt = loan.totalBorrowedUsd;
-  const borrowedSymbol = loan.borrowed.symbol;
+  const borrowedSymbols = new Set(loan.borrowed.map((b) => b.symbol));
 
-  const nonSameAssets = loan.supplied.filter((asset) => asset.symbol !== borrowedSymbol);
-  const sameAssets = loan.supplied.filter((asset) => asset.symbol === borrowedSymbol);
+  const nonSameAssets = loan.supplied.filter((asset) => !borrowedSymbols.has(asset.symbol));
+  const sameAssets = loan.supplied.filter((asset) => borrowedSymbols.has(asset.symbol));
 
   const adjustedCollateralUSD = nonSameAssets.reduce((sum, asset) => sum + asset.usdValue, 0);
   const adjustedLt = weightedAverage(nonSameAssets, (asset) => asset.liqThreshold);
@@ -162,7 +162,7 @@ export function computeLoanMetrics(loan: LoanPosition | null, rDeploy: number): 
   const ltvMax = weightedAverage(loan.supplied, (asset) => asset.maxLTV);
   const lt = weightedAverage(loan.supplied, (asset) => asset.liqThreshold);
   const rSupply = weightedAverage(loan.supplied, (asset) => asset.supplyRate);
-  const rBorrow = loan.borrowed.borrowRate;
+  const rBorrow = weightedAverage(loan.borrowed, (asset) => asset.borrowRate);
 
   const ltv = collateralUSD > 0 ? debt / collateralUSD : 0;
   const leverage = equity > 0 ? collateralUSD / equity : Infinity;

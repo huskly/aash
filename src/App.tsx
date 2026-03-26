@@ -363,21 +363,24 @@ export default function App() {
       return;
     }
 
-    const storageKey = buildBorrowRateHistoryKey(
-      selectedLoan.marketName,
-      selectedLoan.borrowed.address,
+    if (selectedLoan.borrowed.length === 0) {
+      setSelectedReserveTelemetry(null);
+      setReserveTelemetryError('');
+      setBorrowRateHistory([]);
+      return;
+    }
+
+    const primaryBorrow = selectedLoan.borrowed.reduce((max, b) =>
+      b.usdValue > max.usdValue ? b : max,
     );
+    const storageKey = buildBorrowRateHistoryKey(selectedLoan.marketName, primaryBorrow.address);
     setBorrowRateHistory(readBorrowRateHistory(storageKey));
 
     let cancelled = false;
     setSelectedReserveTelemetry(null);
     setReserveTelemetryError('');
 
-    void fetchReserveTelemetry(
-      selectedLoan.marketName,
-      selectedLoan.borrowed.address,
-      selectedLoan.borrowed.symbol,
-    )
+    void fetchReserveTelemetry(selectedLoan.marketName, primaryBorrow.address, primaryBorrow.symbol)
       .then((telemetry) => {
         if (cancelled) return;
 
@@ -403,13 +406,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [
-    result?.lastUpdated,
-    selectedLoan?.borrowed.address,
-    selectedLoan?.borrowed.symbol,
-    selectedLoan?.marketName,
-    selectedLoan,
-  ]);
+  }, [result?.lastUpdated, selectedLoan?.marketName, selectedLoan]);
 
   const handleFetch = async (event: FormEvent) => {
     event.preventDefault();
@@ -627,7 +624,8 @@ export default function App() {
                       size="sm"
                       onClick={() => setSelectedLoanId(loan.id)}
                     >
-                      Loan {index + 1}: {loan.marketName} · {loan.borrowed.symbol}
+                      Loan {index + 1}: {loan.marketName} ·{' '}
+                      {loan.borrowed.map((b) => b.symbol).join(' + ')}
                     </Button>
                   ))}
                 </nav>
@@ -640,10 +638,22 @@ export default function App() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <StaticField
-                        label="Borrowed asset"
-                        value={`${fmtAmount(selectedLoan?.borrowed.amount ?? 0)} ${selectedLoan?.borrowed.symbol ?? ''}`}
-                      />
+                      <div className="grid min-w-0 gap-1.5 text-sm">
+                        <span className="text-muted-foreground">Borrowed assets</span>
+                        <ul className="grid list-none gap-1.5">
+                          {selectedLoan?.borrowed.map((asset) => (
+                            <li
+                              key={`${asset.address}-${asset.symbol}`}
+                              className="flex justify-between gap-2.5 rounded-lg border border-border bg-accent px-3 py-2 max-[980px]:flex-col max-[980px]:items-start"
+                            >
+                              <span className="font-medium">{asset.symbol}</span>
+                              <span className="text-muted-foreground">
+                                {fmtAmount(asset.amount)} | {fmtUSD(asset.usdValue, 0)}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                       <StaticField label="Market" value={selectedLoan?.marketName ?? '—'} />
                       <StaticField label="Debt (USD)" value={fmtUSD(computed.debt, 0)} />
                       <Separator />
