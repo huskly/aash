@@ -1,6 +1,6 @@
-# aash - Aave Loan Monitor
+# aash - Aave & Morpho Loan Monitor
 
-A React + Vite dashboard that auto-loads Aave loan positions from a wallet address and computes risk/health metrics.
+A React + Vite dashboard that auto-loads Aave and Morpho Blue loan positions from a wallet address and computes risk/health metrics.
 
 ## Goals
 
@@ -19,8 +19,8 @@ A React + Vite dashboard that auto-loads Aave loan positions from a wallet addre
 - Manual `Refresh` button to reload the current dashboard data on demand.
 - Automatic refresh every 120 seconds after a wallet is loaded.
 - Multi-market support:
-  - `proto_mainnet_v3`
-  - `proto_lido_v3`
+  - Aave V3: `proto_mainnet_v3`, `proto_lido_v3`
+  - Morpho Blue: isolated markets (fetched from Morpho GraphQL API)
 - Tabs for multiple loans/borrowed assets.
 - Top-level portfolio metrics across all active loans (average health factor, weighted APYs, total debt/collateral/net worth).
 - Fully paid-off / dust positions with effectively zero USD exposure are filtered out.

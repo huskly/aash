@@ -7,6 +7,7 @@ import {
   isWorsening,
   isImproving,
   fetchFromAaveSubgraph,
+  fetchFromMorphoApi,
   fetchTokenBalances,
   fetchUsdPrices,
   buildLoanPositions,
@@ -179,7 +180,11 @@ export class Monitor {
       'Prices resolved',
     );
 
-    const loans = buildLoanPositions(reserves, prices);
+    const morphoLoans = await fetchFromMorphoApi(address).catch(() => {
+      logger.warn({ wallet: this.shortAddr(address) }, 'Morpho positions unavailable');
+      return [];
+    });
+    const loans = [...buildLoanPositions(reserves, prices), ...morphoLoans];
     const collateralAssets = Array.from(
       new Map(
         loans

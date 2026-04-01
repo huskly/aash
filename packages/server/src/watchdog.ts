@@ -73,6 +73,9 @@ export class Watchdog {
   }
 
   async evaluate(loan: LoanPosition, walletAddress: string): Promise<void> {
+    // Watchdog rescue is Aave-specific; skip non-Aave loans.
+    if (!loan.marketName.startsWith('proto_')) return;
+
     const config = this.getConfig();
 
     if (!config.enabled) return;

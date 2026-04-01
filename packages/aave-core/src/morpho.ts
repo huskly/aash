@@ -1,0 +1,208 @@
+import type { AssetPosition, LoanPosition } from './types.js';
+
+const MORPHO_API_URL = 'https://api.morpho.org/graphql';
+const MIN_POSITION_USD = 0.01;
+
+type MorphoAsset = {
+  symbol: string;
+  address: string;
+  decimals: number;
+  priceUsd: number | null;
+};
+
+type MorphoMarketState = {
+  utilization: number;
+  borrowApy: number;
+  supplyApy: number;
+};
+
+export type RawMorphoMarketPosition = {
+  market: {
+    uniqueKey: string;
+    loanAsset: MorphoAsset;
+    collateralAsset: MorphoAsset | null;
+    lltv: string;
+    state: MorphoMarketState;
+  };
+  borrowAssets: string;
+  borrowAssetsUsd: number | null;
+  supplyAssets: string;
+  supplyAssetsUsd: number | null;
+  collateral: string;
+};
+
+type MorphoUserResponse = {
+  data?: {
+    userByAddress?: {
+      address: string;
+      marketPositions: RawMorphoMarketPosition[];
+    };
+  };
+  errors?: Array<{ message: string }>;
+};
+
+const MORPHO_POSITIONS_QUERY = `
+  query UserPositions($address: String!, $chainId: Int!) {
+    userByAddress(chainId: $chainId, address: $address) {
+      address
+      marketPositions {
+        market {
+          uniqueKey
+          loanAsset {
+            symbol
+            address
+            decimals
+            priceUsd
+          }
+          collateralAsset {
+            symbol
+            address
+            decimals
+            priceUsd
+          }
+          lltv
+          state {
+            utilization
+            borrowApy
+            supplyApy
+          }
+        }
+        borrowAssets
+        borrowAssetsUsd
+        supplyAssets
+        supplyAssetsUsd
+        collateral
+      }
+    }
+  }
+`;
+
+function fromWad(raw: string): number {
+  return Number(BigInt(raw)) / 1e18;
+}
+
+function parseAmount(raw: string, decimals: number): number {
+  const value = Number(BigInt(raw)) / 10 ** decimals;
+  return Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * Resolve USD price and value for a position. Prefers the position-level USD
+ * total (e.g. `borrowAssetsUsd`) as the source of truth, back-calculating the
+ * per-unit price when `asset.priceUsd` is null. This avoids zeroing out debt or
+ * collateral when the per-asset price field is missing.
+ */
+function resolveUsd(
+  asset: MorphoAsset,
+  amount: number,
+  positionUsd: number | null,
+): { usdPrice: number; usdValue: number } {
+  if (asset.priceUsd != null) {
+    return { usdPrice: asset.priceUsd, usdValue: amount * asset.priceUsd };
+  }
+  if (positionUsd != null && positionUsd > 0) {
+    return { usdPrice: amount > 0 ? positionUsd / amount : 0, usdValue: positionUsd };
+  }
+  return { usdPrice: 0, usdValue: 0 };
+}
+
+function buildCollateralPosition(pos: RawMorphoMarketPosition, lltv: number): AssetPosition | null {
+  const asset = pos.market.collateralAsset;
+  if (!asset) return null;
+
+  const amount = parseAmount(pos.collateral, asset.decimals);
+  if (amount <= 0) return null;
+
+  // Collateral has no position-level USD field; fall back to supplyAssetsUsd
+  // only when the collateral and supply sides refer to the same asset context.
+  const { usdPrice, usdValue } = resolveUsd(asset, amount, pos.supplyAssetsUsd);
+  return {
+    symbol: asset.symbol.toUpperCase(),
+    address: asset.address.toLowerCase(),
+    decimals: asset.decimals,
+    amount,
+    usdPrice,
+    usdValue,
+    collateralEnabled: true,
+    maxLTV: lltv,
+    liqThreshold: lltv,
+    supplyRate: pos.market.state.supplyApy,
+    borrowRate: 0,
+  };
+}
+
+function buildBorrowPosition(pos: RawMorphoMarketPosition): AssetPosition | null {
+  const asset = pos.market.loanAsset;
+  const amount = parseAmount(pos.borrowAssets, asset.decimals);
+  if (amount <= 0) return null;
+
+  const { usdPrice, usdValue } = resolveUsd(asset, amount, pos.borrowAssetsUsd);
+  return {
+    symbol: asset.symbol.toUpperCase(),
+    address: asset.address.toLowerCase(),
+    decimals: asset.decimals,
+    amount,
+    usdPrice,
+    usdValue,
+    collateralEnabled: false,
+    maxLTV: 0,
+    liqThreshold: 0,
+    supplyRate: 0,
+    borrowRate: pos.market.state.borrowApy,
+  };
+}
+
+export async function fetchFromMorphoApi(
+  wallet: string,
+  chainId: number = 1,
+): Promise<LoanPosition[]> {
+  const response = await fetch(MORPHO_API_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      query: MORPHO_POSITIONS_QUERY,
+      variables: { address: wallet.toLowerCase(), chainId },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Morpho API returned ${response.status}`);
+  }
+
+  const payload = (await response.json()) as MorphoUserResponse;
+
+  if (payload.errors?.length) {
+    throw new Error(`Morpho API error: ${payload.errors[0]?.message ?? 'unknown'}`);
+  }
+
+  const positions = payload.data?.userByAddress?.marketPositions ?? [];
+
+  return positions.flatMap((pos): LoanPosition[] => {
+    const lltv = fromWad(pos.market.lltv);
+    const collateral = buildCollateralPosition(pos, lltv);
+    const borrow = buildBorrowPosition(pos);
+
+    if (!collateral && !borrow) return [];
+
+    const supplied = collateral ? [collateral] : [];
+    const borrowed = borrow ? [borrow] : [];
+    const totalSuppliedUsd = supplied.reduce((sum, a) => sum + a.usdValue, 0);
+    const totalBorrowedUsd = borrowed.reduce((sum, a) => sum + a.usdValue, 0);
+
+    if (totalSuppliedUsd < MIN_POSITION_USD && totalBorrowedUsd < MIN_POSITION_USD) return [];
+
+    const collateralSymbol = pos.market.collateralAsset?.symbol.toUpperCase() ?? '?';
+    const loanSymbol = pos.market.loanAsset.symbol.toUpperCase();
+
+    return [
+      {
+        id: pos.market.uniqueKey,
+        marketName: `morpho_${collateralSymbol}_${loanSymbol}`,
+        borrowed,
+        supplied,
+        totalSuppliedUsd,
+        totalBorrowedUsd,
+      },
+    ];
+  });
+}

@@ -54,6 +54,8 @@ export {
 
 export { buildLoanPositions, fetchFromAaveSubgraph } from './aave.js';
 
+export { fetchFromMorphoApi, type RawMorphoMarketPosition } from './morpho.js';
+
 export { fetchUsdPrices } from './prices.js';
 
 export {

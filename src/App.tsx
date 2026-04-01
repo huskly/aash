@@ -33,6 +33,7 @@ import {
   portfolioHealthFactorBand,
   parseDeployRate,
   fetchFromAaveSubgraph,
+  fetchFromMorphoApi,
   fetchUsdPrices,
   buildLoanPositions,
 } from '@aave-monitor/core';
@@ -281,10 +282,13 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      const reserves = await fetchFromAaveSubgraph(normalizedWallet, GRAPH_API_KEY);
+      const [reserves, morphoLoans] = await Promise.all([
+        fetchFromAaveSubgraph(normalizedWallet, GRAPH_API_KEY),
+        fetchFromMorphoApi(normalizedWallet).catch(() => []),
+      ]);
       const reserveSymbols = Array.from(new Set(reserves.map((entry) => entry.reserve.symbol)));
       const prices = await fetchUsdPrices(reserveSymbols, COINGECKO_API_KEY);
-      const loans = buildLoanPositions(reserves, prices);
+      const loans = [...buildLoanPositions(reserves, prices), ...morphoLoans];
       const collateralAssets = Array.from(
         new Map(
           loans
@@ -379,6 +383,12 @@ export default function App() {
     let cancelled = false;
     setSelectedReserveTelemetry(null);
     setReserveTelemetryError('');
+
+    if (selectedLoan.marketName.startsWith('morpho_')) {
+      setSelectedReserveTelemetry(null);
+      setReserveTelemetryError('Reserve telemetry is not available for Morpho markets.');
+      return;
+    }
 
     void fetchReserveTelemetry(selectedLoan.marketName, primaryBorrow.address, primaryBorrow.symbol)
       .then((telemetry) => {
