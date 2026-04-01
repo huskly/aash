@@ -86,6 +86,26 @@ function parseAmount(raw: string, decimals: number): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+/**
+ * Resolve USD price and value for a position. Prefers the position-level USD
+ * total (e.g. `borrowAssetsUsd`) as the source of truth, back-calculating the
+ * per-unit price when `asset.priceUsd` is null. This avoids zeroing out debt or
+ * collateral when the per-asset price field is missing.
+ */
+function resolveUsd(
+  asset: MorphoAsset,
+  amount: number,
+  positionUsd: number | null,
+): { usdPrice: number; usdValue: number } {
+  if (asset.priceUsd != null) {
+    return { usdPrice: asset.priceUsd, usdValue: amount * asset.priceUsd };
+  }
+  if (positionUsd != null && positionUsd > 0) {
+    return { usdPrice: amount > 0 ? positionUsd / amount : 0, usdValue: positionUsd };
+  }
+  return { usdPrice: 0, usdValue: 0 };
+}
+
 function buildCollateralPosition(pos: RawMorphoMarketPosition, lltv: number): AssetPosition | null {
   const asset = pos.market.collateralAsset;
   if (!asset) return null;
@@ -93,14 +113,16 @@ function buildCollateralPosition(pos: RawMorphoMarketPosition, lltv: number): As
   const amount = parseAmount(pos.collateral, asset.decimals);
   if (amount <= 0) return null;
 
-  const usdPrice = asset.priceUsd ?? 0;
+  // Collateral has no position-level USD field; fall back to supplyAssetsUsd
+  // only when the collateral and supply sides refer to the same asset context.
+  const { usdPrice, usdValue } = resolveUsd(asset, amount, pos.supplyAssetsUsd);
   return {
     symbol: asset.symbol.toUpperCase(),
     address: asset.address.toLowerCase(),
     decimals: asset.decimals,
     amount,
     usdPrice,
-    usdValue: amount * usdPrice,
+    usdValue,
     collateralEnabled: true,
     maxLTV: lltv,
     liqThreshold: lltv,
@@ -114,14 +136,14 @@ function buildBorrowPosition(pos: RawMorphoMarketPosition): AssetPosition | null
   const amount = parseAmount(pos.borrowAssets, asset.decimals);
   if (amount <= 0) return null;
 
-  const usdPrice = asset.priceUsd ?? 0;
+  const { usdPrice, usdValue } = resolveUsd(asset, amount, pos.borrowAssetsUsd);
   return {
     symbol: asset.symbol.toUpperCase(),
     address: asset.address.toLowerCase(),
     decimals: asset.decimals,
     amount,
     usdPrice,
-    usdValue: amount * usdPrice,
+    usdValue,
     collateralEnabled: false,
     maxLTV: 0,
     liqThreshold: 0,

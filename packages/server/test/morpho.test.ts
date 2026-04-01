@@ -139,6 +139,33 @@ describe('fetchFromMorphoApi', () => {
     assert.equal(loans.length, 0);
   });
 
+  it('falls back to position-level USD when priceUsd is null', async () => {
+    const pos = samplePosition();
+    pos.market.loanAsset.priceUsd = null;
+    pos.market.collateralAsset!.priceUsd = null;
+    // borrowAssetsUsd is the position-level fallback
+    pos.borrowAssetsUsd = 500;
+    pos.supplyAssetsUsd = 3000;
+    const mockResponse = makeMorphoApiResponse([pos]);
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify(mockResponse), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+
+    const loans = await fetchFromMorphoApi(WALLET);
+    assert.equal(loans.length, 1);
+    const loan = loans[0];
+
+    // Borrow: usdValue from borrowAssetsUsd, price back-calculated
+    assert.equal(loan.borrowed[0].usdValue, 500);
+    assert.equal(loan.borrowed[0].usdPrice, 1); // 500 / 500
+
+    // Collateral: usdValue from supplyAssetsUsd fallback, price back-calculated
+    assert.equal(loan.supplied[0].usdValue, 3000);
+    assert.equal(loan.supplied[0].usdPrice, 3000); // 3000 / 1
+  });
+
   it('throws on API error', async () => {
     globalThis.fetch = async () => new Response('', { status: 500 });
 
