@@ -16,7 +16,7 @@ function createConfig(overrides: Partial<WatchdogConfig> = {}): WatchdogConfig {
     targetHF: 1.9,
     minResultingHF: 1.85,
     cooldownMs: 30 * 60 * 1000,
-    maxTopUpWbtc: 0.5,
+    maxTopUpAmount: 0.5,
     deadlineSeconds: 300,
     rescueContract: RESCUE_CONTRACT,
     morphoRescueContract: '',

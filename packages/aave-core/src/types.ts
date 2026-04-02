@@ -14,7 +14,7 @@ export type WatchdogConfig = {
   targetHF: number;
   minResultingHF: number;
   cooldownMs: number;
-  maxTopUpWbtc: number;
+  maxTopUpAmount: number;
   deadlineSeconds: number;
   rescueContract: string;
   morphoRescueContract: string;

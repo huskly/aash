@@ -31,7 +31,7 @@ function createConfig(overrides: Partial<WatchdogConfig> = {}): WatchdogConfig {
     targetHF: 1.9,
     minResultingHF: 1.85,
     cooldownMs: 30 * 60 * 1000,
-    maxTopUpWbtc: 0.5,
+    maxTopUpAmount: 0.5,
     deadlineSeconds: 300,
     rescueContract: RESCUE_CONTRACT,
     morphoRescueContract: '',
@@ -347,7 +347,7 @@ describe('evaluate integration with mock provider', () => {
       },
     });
 
-    const { watchdog } = createWatchdog(createConfig({ dryRun: true, maxTopUpWbtc: 0.5 }));
+    const { watchdog } = createWatchdog(createConfig({ dryRun: true, maxTopUpAmount: 0.5 }));
     injectProvider(watchdog, provider);
 
     await watchdog.evaluate(createLoan(), WALLET);
@@ -671,7 +671,7 @@ describe('Morpho rescue via evaluate', () => {
       createConfig({
         dryRun: true,
         morphoRescueContract: MORPHO_RESCUE_CONTRACT,
-        maxTopUpWbtc: 1.0, // 1 WETH max (18-decimal collateral needs higher limit)
+        maxTopUpAmount: 1.0, // 1 WETH max (18-decimal collateral needs higher limit)
       }),
     );
     injectProvider(watchdog, provider);

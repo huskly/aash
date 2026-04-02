@@ -177,7 +177,7 @@ export class Watchdog {
       ]);
 
       const maxTopUpRaw = parseUnits(
-        config.maxTopUpWbtc.toFixed(collateralDecimals),
+        config.maxTopUpAmount.toFixed(collateralDecimals),
         collateralDecimals,
       );
       const availableRaw = minBigInt(walletBalanceRaw, allowanceRaw, maxTopUpRaw);

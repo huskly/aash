@@ -196,11 +196,11 @@ The watchdog monitors loan health and can execute an atomic on-chain rescue when
 - Monitor polling runs when at least one wallet is enabled (Telegram can stay disabled)
 - Dry-run mode by default (notifies what _would_ happen, no on-chain transactions)
 - Live mode requires `WATCHDOG_PRIVATE_KEY` env var
-- Live mode also requires WBTC allowance from monitored wallet to the configured rescue contract
+- Live mode requires allowance for the rescue asset being topped up: WBTC for Aave, market collateral for Morpho
 - API: `GET /api/watchdog/status` for status and recent action log
 - Telegram: `/watchdog` command for status and recent actions
 - Config: watchdog section in `GET/PUT /api/config`
-- Dashboard UI: bell settings panel includes rescue contract, HF thresholds, WBTC cap, deadline, gas cap
+- Dashboard UI: bell settings panel includes rescue contracts, HF thresholds, rescue-asset cap, deadline, gas cap
 
 ## How It Works
 

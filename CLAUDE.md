@@ -29,7 +29,7 @@ Configured via `.env` in project root (prefixed with `VITE_` for Vite exposure):
 - `RPC_URL` — Ethereum JSON-RPC endpoint used by backend for on-chain reads (default `https://eth.llamarpc.com`)
 - `WATCHDOG_PRIVATE_KEY` — optional private key for watchdog live mode (atomic rescue); omit for dry-run only
 - `WATCHDOG_MIN_RESULTING_HF` — optional override for minimum required post-rescue HF
-- `WATCHDOG_MAX_TOP_UP_WBTC` — optional override for max WBTC top-up per rescue action
+- `WATCHDOG_MAX_TOP_UP_AMOUNT` — optional override for the max rescue-asset top-up per action (`WATCHDOG_MAX_TOP_UP_WBTC` still works as a legacy alias)
 - `WATCHDOG_DEADLINE_SECONDS` — optional override for rescue transaction deadline in seconds
 - `WATCHDOG_RESCUE_CONTRACT` — optional override for Aave rescue contract address
 - `WATCHDOG_MORPHO_RESCUE_CONTRACT` — optional override for Morpho Blue rescue contract address
@@ -63,6 +63,7 @@ Backend server notes:
 - Watchdog rescue supports both Aave and Morpho Blue loans via separate rescue contracts (`rescueContract` for Aave, `morphoRescueContract` for Morpho).
 - Morpho rescue uses the market-specific collateral token (resolved from `LoanPosition.morphoMarketParams`) rather than hardcoded WBTC.
 - Morpho rescue preview/guard math uses accrued borrow interest and Morpho's virtual-share conversion instead of raw stale market totals.
+- Watchdog top-up caps are configured as a generic rescue-asset amount (`maxTopUpAmount`), not a WBTC-only value.
 
 Frontend notes:
 

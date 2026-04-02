@@ -49,7 +49,7 @@ test('load() merges missing watchdog fields from defaults when persisted config 
     assert.equal(watchdog.dryRun, true);
     assert.equal(watchdog.minResultingHF, 1.85);
     assert.equal(watchdog.cooldownMs, 30 * 60 * 1000);
-    assert.equal(watchdog.maxTopUpWbtc, 0.5);
+    assert.equal(watchdog.maxTopUpAmount, 0.5);
     assert.equal(watchdog.deadlineSeconds, 300);
     assert.equal(watchdog.rescueContract, '');
     assert.equal(watchdog.morphoRescueContract, '');
@@ -102,7 +102,7 @@ test('update() merges partial watchdog payload with existing watchdog config', (
         targetHF: 1.95,
         minResultingHF: 1.85,
         cooldownMs: 1000,
-        maxTopUpWbtc: 0.2,
+        maxTopUpAmount: 0.2,
         deadlineSeconds: 120,
         rescueContract: '0x2222222222222222222222222222222222222222',
         morphoRescueContract: '0x3333333333333333333333333333333333333333',
@@ -119,11 +119,34 @@ test('update() merges partial watchdog payload with existing watchdog config', (
     assert.equal(watchdog.targetHF, 2.0);
     assert.equal(watchdog.minResultingHF, 1.85);
     assert.equal(watchdog.cooldownMs, 1000);
-    assert.equal(watchdog.maxTopUpWbtc, 0.2);
+    assert.equal(watchdog.maxTopUpAmount, 0.2);
     assert.equal(watchdog.deadlineSeconds, 120);
     assert.equal(watchdog.rescueContract, '0x2222222222222222222222222222222222222222');
     assert.equal(watchdog.morphoRescueContract, '0x3333333333333333333333333333333333333333');
     assert.equal(watchdog.maxGasGwei, 10);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('load() maps legacy maxTopUpWbtc field to maxTopUpAmount', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aash-storage-test-'));
+  const configPath = join(dir, 'config.json');
+  const saved = {
+    ...createBaseConfig(),
+    watchdog: {
+      enabled: true,
+      maxTopUpWbtc: 0.75,
+    },
+  };
+
+  try {
+    writeFileSync(configPath, JSON.stringify(saved, null, 2), 'utf-8');
+
+    const storage = new ConfigStorage(configPath);
+    const watchdog = storage.get().watchdog;
+
+    assert.equal(watchdog.maxTopUpAmount, 0.75);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

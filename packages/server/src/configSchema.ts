@@ -1,6 +1,31 @@
 import { z } from 'zod';
 import type { AlertConfig, WatchdogConfig } from './storage.js';
 
+const partialWatchdogConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    dryRun: z.boolean(),
+    triggerHF: z.number().positive(),
+    targetHF: z.number().positive(),
+    minResultingHF: z.number().positive(),
+    cooldownMs: z.number().positive(),
+    maxTopUpAmount: z.number().positive(),
+    maxTopUpWbtc: z.number().positive(),
+    deadlineSeconds: z.number().int().positive(),
+    rescueContract: z.string(),
+    morphoRescueContract: z.string(),
+    maxGasGwei: z.number().positive(),
+  })
+  .partial()
+  .transform(({ maxTopUpWbtc, maxTopUpAmount, ...watchdog }) => ({
+    ...watchdog,
+    ...(maxTopUpAmount !== undefined
+      ? { maxTopUpAmount }
+      : maxTopUpWbtc !== undefined
+        ? { maxTopUpAmount: maxTopUpWbtc }
+        : {}),
+  }));
+
 export const partialAlertConfigSchema = z
   .object({
     wallets: z.array(
@@ -27,21 +52,7 @@ export const partialAlertConfigSchema = z
         maxHF: z.union([z.number(), z.null()]).transform((value) => value ?? Infinity),
       }),
     ),
-    watchdog: z
-      .object({
-        enabled: z.boolean(),
-        dryRun: z.boolean(),
-        triggerHF: z.number().positive(),
-        targetHF: z.number().positive(),
-        minResultingHF: z.number().positive(),
-        cooldownMs: z.number().positive(),
-        maxTopUpWbtc: z.number().positive(),
-        deadlineSeconds: z.number().int().positive(),
-        rescueContract: z.string(),
-        morphoRescueContract: z.string(),
-        maxGasGwei: z.number().positive(),
-      })
-      .partial(),
+    watchdog: partialWatchdogConfigSchema,
   })
   .partial();
 

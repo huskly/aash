@@ -69,8 +69,9 @@ function applyWatchdogEnvOverrides(watchdog: WatchdogConfig): void {
   const minResultingHF = parseEnvFloat('WATCHDOG_MIN_RESULTING_HF');
   if (minResultingHF !== undefined) watchdog.minResultingHF = minResultingHF;
 
-  const maxTopUpWbtc = parseEnvFloat('WATCHDOG_MAX_TOP_UP_WBTC');
-  if (maxTopUpWbtc !== undefined) watchdog.maxTopUpWbtc = maxTopUpWbtc;
+  const maxTopUpAmount =
+    parseEnvFloat('WATCHDOG_MAX_TOP_UP_AMOUNT') ?? parseEnvFloat('WATCHDOG_MAX_TOP_UP_WBTC');
+  if (maxTopUpAmount !== undefined) watchdog.maxTopUpAmount = maxTopUpAmount;
 
   const deadlineSeconds = parseEnvFloat('WATCHDOG_DEADLINE_SECONDS');
   if (deadlineSeconds !== undefined) watchdog.deadlineSeconds = deadlineSeconds;
@@ -83,9 +84,16 @@ function applyWatchdogEnvOverrides(watchdog: WatchdogConfig): void {
 }
 
 function mergeWatchdogConfig(config: Partial<WatchdogConfig> | undefined): WatchdogConfig {
+  const legacyConfig = (config ?? {}) as Partial<WatchdogConfig> & {
+    maxTopUpWbtc?: number;
+  };
+
   return {
     ...DEFAULT_WATCHDOG_CONFIG,
     ...config,
+    ...(legacyConfig.maxTopUpWbtc !== undefined && config?.maxTopUpAmount === undefined
+      ? { maxTopUpAmount: legacyConfig.maxTopUpWbtc }
+      : {}),
   };
 }
 

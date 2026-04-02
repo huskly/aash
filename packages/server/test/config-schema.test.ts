@@ -15,3 +15,14 @@ test('parseConfigBody accepts morphoRescueContract updates', () => {
     '0x3333333333333333333333333333333333333333',
   );
 });
+
+test('parseConfigBody maps legacy maxTopUpWbtc to maxTopUpAmount', () => {
+  const parsed = parseConfigBody({
+    watchdog: {
+      maxTopUpWbtc: 0.75,
+    },
+  });
+
+  assert.ok('data' in parsed);
+  assert.equal(parsed.data.watchdog?.maxTopUpAmount, 0.75);
+});

@@ -76,8 +76,8 @@ function validateConfig(config: AlertConfig): string | null {
     return 'Watchdog cooldown must be a positive number.';
   }
 
-  if (!isPositiveFinite(watchdog.maxTopUpWbtc)) {
-    return 'Watchdog max WBTC top-up must be a positive number.';
+  if (!isPositiveFinite(watchdog.maxTopUpAmount)) {
+    return 'Watchdog max top-up amount must be a positive number.';
   }
 
   if (!isPositiveFinite(watchdog.deadlineSeconds)) {
@@ -565,18 +565,20 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                     </label>
 
                     <label className="grid gap-1.5 text-sm">
-                      <span className="text-muted-foreground">Max top-up per action (WBTC)</span>
+                      <span className="text-muted-foreground">
+                        Max top-up per action (rescue asset)
+                      </span>
                       <Input
                         type="number"
                         min="0.0001"
                         step="0.0001"
-                        value={config.watchdog.maxTopUpWbtc}
+                        value={config.watchdog.maxTopUpAmount}
                         onChange={(e) => {
                           const updated = {
                             ...config,
                             watchdog: {
                               ...config.watchdog,
-                              maxTopUpWbtc: Number(e.target.value),
+                              maxTopUpAmount: Number(e.target.value),
                             },
                           };
                           setConfig(updated);
@@ -586,7 +588,7 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                             ...config,
                             watchdog: {
                               ...config.watchdog,
-                              maxTopUpWbtc: Number(e.target.value),
+                              maxTopUpAmount: Number(e.target.value),
                             },
                           };
                           void saveConfig(updated);

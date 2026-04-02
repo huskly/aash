@@ -34,7 +34,7 @@ Watchdog config fields:
 - `targetHF` (default `1.9`)
 - `minResultingHF` (default `1.85`)
 - `cooldownMs` (default `1800000`)
-- `maxTopUpWbtc` (default `0.5`)
+- `maxTopUpAmount` (default `0.5`)
 - `deadlineSeconds` (default `300`)
 - `rescueContract` (required for Aave rescue when `enabled=true`)
 - `morphoRescueContract` (required for Morpho rescue when `enabled=true`)
@@ -54,7 +54,7 @@ Environment overrides:
 - `WATCHDOG_TRIGGER_HF`
 - `WATCHDOG_TARGET_HF`
 - `WATCHDOG_MIN_RESULTING_HF`
-- `WATCHDOG_MAX_TOP_UP_WBTC`
+- `WATCHDOG_MAX_TOP_UP_AMOUNT` (`WATCHDOG_MAX_TOP_UP_WBTC` still works as a legacy alias)
 - `WATCHDOG_MORPHO_RESCUE_CONTRACT`
 
 ## On-Chain Requirements
@@ -113,5 +113,5 @@ Live:
 - Start with `dryRun=true`.
 - Configure `rescueContract` (Aave) and/or `morphoRescueContract` (Morpho) and verify addresses.
 - Pre-approve collateral tokens from monitored wallet to rescue contract(s).
-- Keep `maxTopUpWbtc` small during rollout.
+- Keep `maxTopUpAmount` small during rollout.
 - Monitor Telegram alerts and `/api/watchdog/status`.
