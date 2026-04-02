@@ -93,7 +93,7 @@ Live:
 
 ## API and Telegram
 
-- `GET /api/watchdog/status`: returns summary + recent action log
+- `GET /api/watchdog/status`: returns summary + recent action log, including separate Aave/Morpho rescue contract fields plus per-action `topUpAmount` and `topUpAssetSymbol`
 - `GET /api/config`: includes watchdog section
 - `PUT /api/config`: updates watchdog fields
 - `/watchdog`: shows watchdog status and recent actions

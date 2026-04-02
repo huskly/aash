@@ -119,7 +119,8 @@ test('formatWatchdogStatusMessage escapes html-sensitive log content', () => {
     triggerHF: 1.65,
     targetHF: 1.9,
     minResultingHF: 1.85,
-    rescueContract: '0x2222222222222222222222222222222222222222',
+    aaveRescueContract: '0x2222222222222222222222222222222222222222',
+    morphoRescueContract: '0x3333333333333333333333333333333333333333',
     recentActions: 1,
   };
   const log: WatchdogLogEntry[] = [
@@ -127,10 +128,12 @@ test('formatWatchdogStatusMessage escapes html-sensitive log content', () => {
       timestamp: Date.now(),
       loanId: 'loan-1',
       wallet: '0x1111111111111111111111111111111111111111',
+      protocol: 'aave',
       action: 'skipped',
       reason: 'Execution failed: bad <tag> & "quoted"',
       healthFactor: 1.2,
-      topUpWbtc: 0,
+      topUpAmount: 0,
+      topUpAssetSymbol: 'WBTC',
       projectedHF: 1.2,
     },
   ];

@@ -8,7 +8,8 @@ type WatchdogStatusSummary = {
   triggerHF: number;
   targetHF: number;
   minResultingHF: number;
-  rescueContract: string;
+  aaveRescueContract: string;
+  morphoRescueContract: string;
   recentActions: number;
 };
 
@@ -61,7 +62,8 @@ export function formatWatchdogStatusMessage(
     `Trigger HF: <b>${summary.triggerHF}</b>`,
     `Target HF: <b>${summary.targetHF}</b>`,
     `Min resulting HF: <b>${summary.minResultingHF}</b>`,
-    `Rescue contract: <b>${summary.rescueContract || 'Not set'}</b>`,
+    `Aave rescue contract: <b>${summary.aaveRescueContract || 'Not set'}</b>`,
+    `Morpho rescue contract: <b>${summary.morphoRescueContract || 'Not set'}</b>`,
     `Total actions logged: ${summary.recentActions}`,
   ];
 

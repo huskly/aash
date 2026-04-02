@@ -32,10 +32,12 @@ export type WatchdogLogEntry = {
   timestamp: number;
   loanId: string;
   wallet: string;
+  protocol: 'aave' | 'morpho';
   action: 'dry-run' | 'rescue' | 'skipped';
   reason: string;
   healthFactor: number;
-  topUpWbtc: number;
+  topUpAmount: number;
+  topUpAssetSymbol: string;
   projectedHF: number;
   txHash?: string;
 };
@@ -66,7 +68,8 @@ export class Watchdog {
     triggerHF: number;
     targetHF: number;
     minResultingHF: number;
-    rescueContract: string;
+    aaveRescueContract: string;
+    morphoRescueContract: string;
     recentActions: number;
   } {
     const config = this.getConfig();
@@ -77,7 +80,8 @@ export class Watchdog {
       triggerHF: config.triggerHF,
       targetHF: config.targetHF,
       minResultingHF: config.minResultingHF,
-      rescueContract: config.rescueContract,
+      aaveRescueContract: config.rescueContract,
+      morphoRescueContract: config.morphoRescueContract,
       recentActions: this.log.length,
     };
   }
@@ -86,6 +90,7 @@ export class Watchdog {
     const isMorpho = loan.marketName.startsWith('morpho_');
     const isAave = loan.marketName.startsWith('proto_');
     if (!isMorpho && !isAave) return;
+    const protocol = isMorpho ? 'morpho' : 'aave';
 
     const config = this.getConfig();
 
@@ -97,6 +102,10 @@ export class Watchdog {
     }
 
     // Resolve protocol-specific rescue contract and collateral info
+    const collateralToken = isMorpho ? loan.supplied[0]?.address : WBTC_CONTRACT;
+    const collateralDecimals = isMorpho ? (loan.supplied[0]?.decimals ?? 8) : WBTC_DECIMALS;
+    const morphoParams = isMorpho ? loan.morphoMarketParams : undefined;
+    const collateralSymbol = isMorpho ? (loan.supplied[0]?.symbol ?? 'collateral') : 'WBTC';
     const rescueContract = isMorpho
       ? config.morphoRescueContract.trim()
       : config.rescueContract.trim();
@@ -105,29 +114,27 @@ export class Watchdog {
         timestamp: Date.now(),
         loanId: loan.id,
         wallet: walletAddress,
+        protocol,
         action: 'skipped',
         reason: `Invalid or missing ${isMorpho ? 'morphoRescueContract' : 'rescueContract'} in watchdog config`,
         healthFactor,
-        topUpWbtc: 0,
+        topUpAmount: 0,
+        topUpAssetSymbol: collateralSymbol,
         projectedHF: healthFactor,
       });
       return;
     }
-
-    // For Morpho, we need marketParams and the collateral token info
-    const collateralToken = isMorpho ? loan.supplied[0]?.address : WBTC_CONTRACT;
-    const collateralDecimals = isMorpho ? (loan.supplied[0]?.decimals ?? 8) : WBTC_DECIMALS;
-    const morphoParams = isMorpho ? loan.morphoMarketParams : undefined;
-
     if (isMorpho && (!collateralToken || !morphoParams)) {
       this.addLog({
         timestamp: Date.now(),
         loanId: loan.id,
         wallet: walletAddress,
+        protocol,
         action: 'skipped',
         reason: 'Morpho loan missing collateral or market params',
         healthFactor,
-        topUpWbtc: 0,
+        topUpAmount: 0,
+        topUpAssetSymbol: collateralSymbol,
         projectedHF: healthFactor,
       });
       return;
@@ -142,10 +149,12 @@ export class Watchdog {
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
+        protocol,
         action: 'skipped',
         reason: `Cooldown active: ${Math.round(remainingMs / 1000)}s remaining`,
         healthFactor,
-        topUpWbtc: 0,
+        topUpAmount: 0,
+        topUpAssetSymbol: collateralSymbol,
         projectedHF: healthFactor,
       });
       return;
@@ -182,15 +191,16 @@ export class Watchdog {
       );
       const availableRaw = minBigInt(walletBalanceRaw, allowanceRaw, maxTopUpRaw);
       if (availableRaw <= 0n) {
-        const collateralSymbol = isMorpho ? (loan.supplied[0]?.symbol ?? 'collateral') : 'WBTC';
         this.addLog({
           timestamp: now,
           loanId: loan.id,
           wallet: walletAddress,
+          protocol,
           action: 'skipped',
           reason: `No available ${collateralSymbol} (balance/allowance/maxTopUp all exhausted)`,
           healthFactor,
-          topUpWbtc: 0,
+          topUpAmount: 0,
+          topUpAssetSymbol: collateralSymbol,
           projectedHF: healthFactor,
         });
         await this.notify(
@@ -216,15 +226,16 @@ export class Watchdog {
       }
 
       if (computedAmount === null || computedAmount <= 0n) {
-        const collateralSymbol = isMorpho ? (loan.supplied[0]?.symbol ?? 'collateral') : 'WBTC';
         this.addLog({
           timestamp: now,
           loanId: loan.id,
           wallet: walletAddress,
+          protocol,
           action: 'skipped',
           reason: `Insufficient ${collateralSymbol} to achieve minimum resulting HF`,
           healthFactor,
-          topUpWbtc: 0,
+          topUpAmount: 0,
+          topUpAssetSymbol: collateralSymbol,
           projectedHF: healthFactor,
         });
         await this.notify(
@@ -246,10 +257,12 @@ export class Watchdog {
           timestamp: now,
           loanId: loan.id,
           wallet: walletAddress,
+          protocol,
           action: 'skipped',
           reason: 'Projected HF below minimum resulting HF threshold',
           healthFactor,
-          topUpWbtc: this.toFormattedAmount(amountRaw, collateralDecimals),
+          topUpAmount: this.toFormattedAmount(amountRaw, collateralDecimals),
+          topUpAssetSymbol: collateralSymbol,
           projectedHF: this.wadToNumber(projectedHFWad),
         });
         return;
@@ -263,10 +276,12 @@ export class Watchdog {
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
+        protocol,
         action: 'skipped',
         reason: `On-chain call failed: ${message}`,
         healthFactor,
-        topUpWbtc: 0,
+        topUpAmount: 0,
+        topUpAssetSymbol: collateralSymbol,
         projectedHF: healthFactor,
       });
       await this.notify(
@@ -278,17 +293,17 @@ export class Watchdog {
       return;
     }
 
-    const collateralSymbol = isMorpho ? (loan.supplied[0]?.symbol ?? 'collateral') : 'WBTC';
-
     if (config.dryRun) {
       this.addLog({
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
+        protocol,
         action: 'dry-run',
         reason: `Would submit atomic rescue with ${topUpAmount.toFixed(8)} ${collateralSymbol}`,
         healthFactor,
-        topUpWbtc: topUpAmount,
+        topUpAmount,
+        topUpAssetSymbol: collateralSymbol,
         projectedHF,
       });
       this.cooldowns.set(stateKey, now);
@@ -309,10 +324,12 @@ export class Watchdog {
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
+        protocol,
         action: 'skipped',
         reason: 'No private key configured for live rescue execution',
         healthFactor,
-        topUpWbtc: topUpAmount,
+        topUpAmount,
+        topUpAssetSymbol: collateralSymbol,
         projectedHF,
       });
       return;
@@ -324,10 +341,12 @@ export class Watchdog {
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
+        protocol,
         action: 'skipped',
         reason: `Gas price ${gasPriceGwei.toFixed(1)} gwei exceeds max ${config.maxGasGwei} gwei`,
         healthFactor,
-        topUpWbtc: topUpAmount,
+        topUpAmount,
+        topUpAssetSymbol: collateralSymbol,
         projectedHF,
       });
       await this.notify(
@@ -344,10 +363,12 @@ export class Watchdog {
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
+        protocol,
         action: 'skipped',
         reason: `Insufficient ETH for gas: ${ethBalance.toFixed(6)} ETH`,
         healthFactor,
-        topUpWbtc: topUpAmount,
+        topUpAmount,
+        topUpAssetSymbol: collateralSymbol,
         projectedHF,
       });
       await this.notify(
@@ -381,10 +402,12 @@ export class Watchdog {
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
+        protocol,
         action: 'rescue',
         reason: `Rescue submitted with ${topUpAmount.toFixed(8)} ${collateralSymbol}`,
         healthFactor,
-        topUpWbtc: topUpAmount,
+        topUpAmount,
+        topUpAssetSymbol: collateralSymbol,
         projectedHF,
         txHash,
       });
@@ -403,10 +426,12 @@ export class Watchdog {
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
+        protocol,
         action: 'skipped',
         reason: `Rescue tx failed: ${message}`,
         healthFactor,
-        topUpWbtc: topUpAmount,
+        topUpAmount,
+        topUpAssetSymbol: collateralSymbol,
         projectedHF,
       });
       this.cooldowns.set(stateKey, Date.now());
@@ -656,10 +681,12 @@ export class Watchdog {
     logger.info(
       {
         action: entry.action,
+        protocol: entry.protocol,
         reason: entry.reason,
         loan: entry.loanId,
         healthFactor: Number(entry.healthFactor.toFixed(4)),
-        topUpWbtc: entry.topUpWbtc,
+        topUpAmount: entry.topUpAmount,
+        topUpAssetSymbol: entry.topUpAssetSymbol,
         ...(entry.txHash && { txHash: entry.txHash }),
       },
       'Watchdog log entry',

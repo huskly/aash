@@ -121,7 +121,8 @@ test('dry-run logs planned atomic rescue and applies cooldown', async () => {
   assert.match(messages[0]!, /Watchdog DRY RUN/);
   const log = watchdog.getLog();
   assert.equal(log[0]?.action, 'dry-run');
-  assert.equal(log[0]?.topUpWbtc, 0.025);
+  assert.equal(log[0]?.topUpAmount, 0.025);
+  assert.equal(log[0]?.topUpAssetSymbol, 'WBTC');
 });
 
 test('live mode skips when private key is missing', async () => {

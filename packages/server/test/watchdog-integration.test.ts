@@ -188,7 +188,7 @@ describe('findRequiredAmountRaw (via evaluate)', () => {
     assert.equal(log[0]?.action, 'dry-run');
 
     // Expected: ~0.33333334 WBTC (2/3 of 0.5, +1 sat for round-up)
-    const topUp = log[0]!.topUpWbtc;
+    const topUp = log[0]!.topUpAmount;
     assert.ok(topUp > 0.333, `Expected ~0.333 WBTC, got ${topUp}`);
     assert.ok(topUp < 0.34, `Expected ~0.333 WBTC, got ${topUp}`);
 
@@ -225,7 +225,7 @@ describe('findRequiredAmountRaw (via evaluate)', () => {
 
     // Should have used minResultingHF=1.85 as fallback target
     // amount = maxTopUp * (1.85 - 1.5) / (1.88 - 1.5) = maxTopUp * 0.35/0.38 ≈ 0.0921 WBTC
-    const topUp = log[0]!.topUpWbtc;
+    const topUp = log[0]!.topUpAmount;
     assert.ok(topUp > 0.09, `Expected ~0.092 WBTC, got ${topUp}`);
     assert.ok(topUp < 0.1, `Expected ~0.092 WBTC, got ${topUp}`);
   });
@@ -356,7 +356,7 @@ describe('evaluate integration with mock provider', () => {
     assert.equal(log[0]?.action, 'dry-run');
 
     // amount = balance * (1.9 - 1.5) / (2.1 - 1.5) = 0.3 * 2/3 = 0.2 WBTC
-    const topUp = log[0]!.topUpWbtc;
+    const topUp = log[0]!.topUpAmount;
     assert.ok(topUp > 0.19, `Expected ~0.2 WBTC, got ${topUp}`);
     assert.ok(topUp < 0.21, `Expected ~0.2 WBTC, got ${topUp}`);
   });
