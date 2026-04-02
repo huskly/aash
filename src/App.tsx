@@ -447,7 +447,7 @@ export default function App() {
       <main className="mx-auto max-w-[1280px]">
         <header className="flex items-end justify-between gap-4 max-[980px]:flex-col max-[980px]:items-start">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Aave Loan Health Dashboard</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">DeFi Loan Health Dashboard</h1>
             <p className="mt-1.5 text-sm text-muted-foreground">
               Auto-fetched from wallet address using public blockchain data and price APIs.
             </p>
