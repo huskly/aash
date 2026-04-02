@@ -77,6 +77,9 @@ function applyWatchdogEnvOverrides(watchdog: WatchdogConfig): void {
 
   const rescueContract = process.env['WATCHDOG_RESCUE_CONTRACT']?.trim();
   if (rescueContract) watchdog.rescueContract = rescueContract;
+
+  const morphoRescueContract = process.env['WATCHDOG_MORPHO_RESCUE_CONTRACT']?.trim();
+  if (morphoRescueContract) watchdog.morphoRescueContract = morphoRescueContract;
 }
 
 function mergeWatchdogConfig(config: Partial<WatchdogConfig> | undefined): WatchdogConfig {

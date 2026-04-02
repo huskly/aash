@@ -44,6 +44,7 @@ function createConfig(walletEnabled: boolean): AlertConfig {
       maxTopUpWbtc: 0.5,
       deadlineSeconds: 300,
       rescueContract: '0x2222222222222222222222222222222222222222',
+      morphoRescueContract: '',
       maxGasGwei: 50,
     },
   };
@@ -60,6 +61,7 @@ function createWatchdogConfig(): WatchdogConfig {
     maxTopUpWbtc: 0.5,
     deadlineSeconds: 300,
     rescueContract: '0x2222222222222222222222222222222222222222',
+    morphoRescueContract: '',
     maxGasGwei: 50,
   };
 }

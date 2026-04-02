@@ -31,7 +31,8 @@ Configured via `.env` in project root (prefixed with `VITE_` for Vite exposure):
 - `WATCHDOG_MIN_RESULTING_HF` — optional override for minimum required post-rescue HF
 - `WATCHDOG_MAX_TOP_UP_WBTC` — optional override for max WBTC top-up per rescue action
 - `WATCHDOG_DEADLINE_SECONDS` — optional override for rescue transaction deadline in seconds
-- `WATCHDOG_RESCUE_CONTRACT` — optional override for rescue contract address
+- `WATCHDOG_RESCUE_CONTRACT` — optional override for Aave rescue contract address
+- `WATCHDOG_MORPHO_RESCUE_CONTRACT` — optional override for Morpho Blue rescue contract address
 - `TELEGRAM_BOT_TOKEN` — backend Telegram bot token (loaded from root `.env`)
 - `PORT` — optional backend port (default `3001`)
 
@@ -59,7 +60,9 @@ Backend server notes:
 - Morpho markets use a single LLTV (Liquidation LTV) mapped to both `maxLTV` and `liqThreshold` on `AssetPosition`.
 - Morpho loan IDs use the market `uniqueKey`; market names follow the `morpho_<COLLATERAL>_<LOAN>` convention.
 - Interest rate / utilization curve charts are not available for Morpho markets (Aave-specific on-chain telemetry).
-- Watchdog rescue is Aave-only; Morpho loans are skipped via a `proto_` market name prefix check.
+- Watchdog rescue supports both Aave and Morpho Blue loans via separate rescue contracts (`rescueContract` for Aave, `morphoRescueContract` for Morpho).
+- Morpho rescue requires the user to authorize the rescue contract on Morpho Blue (`morpho.setAuthorization(rescueContract, true)`) in addition to the ERC20 collateral token approval.
+- Morpho rescue uses the market-specific collateral token (resolved from `LoanPosition.morphoMarketParams`) rather than hardcoded WBTC.
 
 Frontend notes:
 

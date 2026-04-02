@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
 import test, { describe } from 'node:test';
 import { Interface, parseUnits } from 'ethers';
-import type { LoanPosition } from '@aave-monitor/core';
+import type { LoanPosition, MorphoMarketParams } from '@aave-monitor/core';
 import { Watchdog } from '../src/watchdog.js';
 import type { WatchdogConfig } from '../src/storage.js';
 import type { TelegramClient } from '../src/telegram.js';
 
 const WALLET = '0x1111111111111111111111111111111111111111';
 const RESCUE_CONTRACT = '0x2222222222222222222222222222222222222222';
+const MORPHO_RESCUE_CONTRACT = '0x3333333333333333333333333333333333333333';
+const MORPHO_BLUE_CONTRACT = '0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb';
 const WBTC_CONTRACT = '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599';
+const WETH_CONTRACT = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
+const USDC_CONTRACT = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 
 const ERC20_INTERFACE = new Interface([
   'function balanceOf(address owner) view returns (uint256)',
@@ -31,6 +35,7 @@ function createConfig(overrides: Partial<WatchdogConfig> = {}): WatchdogConfig {
     maxTopUpWbtc: 0.5,
     deadlineSeconds: 300,
     rescueContract: RESCUE_CONTRACT,
+    morphoRescueContract: '',
     maxGasGwei: 50,
     ...overrides,
   };
@@ -541,5 +546,236 @@ describe('evaluate integration with mock provider', () => {
     assert.equal(log[0]?.action, 'dry-run');
     // No messages sent since getChatId returns null
     assert.equal(messages.length, 0);
+  });
+});
+
+// ─── Morpho rescue integration tests ──────────────────────────────────────────
+
+const MORPHO_RESCUE_INTERFACE = new Interface([
+  'function rescue((address user,(address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams,uint256 amount,uint256 minResultingHF,uint256 deadline) params)',
+  'function previewResultingHF((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams, address user, uint256 amount) view returns (uint256)',
+]);
+
+const MORPHO_INTERFACE = new Interface([
+  'function isAuthorized(address authorizer, address authorized) view returns (bool)',
+]);
+
+const SAMPLE_MORPHO_MARKET_PARAMS: MorphoMarketParams = {
+  loanToken: USDC_CONTRACT.toLowerCase(),
+  collateralToken: WETH_CONTRACT.toLowerCase(),
+  oracle: '0x0000000000000000000000000000000000000001',
+  irm: '0x0000000000000000000000000000000000000002',
+  lltv: '860000000000000000',
+};
+
+function createMorphoLoan(overrides: Partial<LoanPosition> = {}): LoanPosition {
+  // HF = 3000 * 0.86 / 1600 = 1.6125 (below triggerHF=1.65)
+  return {
+    id: '0xabc123',
+    marketName: 'morpho_WETH_USDC',
+    borrowed: [
+      {
+        symbol: 'USDC',
+        address: USDC_CONTRACT,
+        decimals: 6,
+        amount: 1600,
+        usdPrice: 1,
+        usdValue: 1600,
+        collateralEnabled: false,
+        maxLTV: 0,
+        liqThreshold: 0,
+        supplyRate: 0,
+        borrowRate: 0.045,
+      },
+    ],
+    supplied: [
+      {
+        symbol: 'WETH',
+        address: WETH_CONTRACT,
+        decimals: 18,
+        amount: 1.0,
+        usdPrice: 3000,
+        usdValue: 3000,
+        collateralEnabled: true,
+        maxLTV: 0.86,
+        liqThreshold: 0.86,
+        supplyRate: 0.032,
+        borrowRate: 0,
+      },
+    ],
+    totalSuppliedUsd: 3000,
+    totalBorrowedUsd: 1600,
+    morphoMarketParams: SAMPLE_MORPHO_MARKET_PARAMS,
+    ...overrides,
+  };
+}
+
+function createMorphoMockProvider(opts: {
+  collateralBalance: bigint;
+  collateralAllowance: bigint;
+  isAuthorized: boolean;
+  previewHF: (amount: bigint) => bigint;
+  gasPriceGwei?: number;
+  ethBalance?: number;
+}) {
+  const balanceOfSelector = ERC20_INTERFACE.getFunction('balanceOf')!.selector;
+  const allowanceSelector = ERC20_INTERFACE.getFunction('allowance')!.selector;
+  const previewSelector = MORPHO_RESCUE_INTERFACE.getFunction('previewResultingHF')!.selector;
+  const isAuthorizedSelector = MORPHO_INTERFACE.getFunction('isAuthorized')!.selector;
+
+  return {
+    call: async (tx: { to: string; data: string }) => {
+      const selector = tx.data.slice(0, 10);
+
+      // Collateral token (WETH) calls
+      if (tx.to.toLowerCase() === WETH_CONTRACT.toLowerCase()) {
+        if (selector === balanceOfSelector) {
+          return ERC20_INTERFACE.encodeFunctionResult('balanceOf', [opts.collateralBalance]);
+        }
+        if (selector === allowanceSelector) {
+          return ERC20_INTERFACE.encodeFunctionResult('allowance', [opts.collateralAllowance]);
+        }
+      }
+
+      // Morpho Blue isAuthorized call
+      if (
+        tx.to.toLowerCase() === MORPHO_BLUE_CONTRACT.toLowerCase() &&
+        selector === isAuthorizedSelector
+      ) {
+        return MORPHO_INTERFACE.encodeFunctionResult('isAuthorized', [opts.isAuthorized]);
+      }
+
+      // Morpho rescue contract preview call
+      if (
+        tx.to.toLowerCase() === MORPHO_RESCUE_CONTRACT.toLowerCase() &&
+        selector === previewSelector
+      ) {
+        const decoded = MORPHO_RESCUE_INTERFACE.decodeFunctionData('previewResultingHF', tx.data);
+        const amount = BigInt(decoded[2]);
+        return MORPHO_RESCUE_INTERFACE.encodeFunctionResult('previewResultingHF', [
+          opts.previewHF(amount),
+        ]);
+      }
+
+      throw new Error(`Unexpected call: to=${tx.to} selector=${selector}`);
+    },
+    getFeeData: async () => ({
+      gasPrice: BigInt(Math.round((opts.gasPriceGwei ?? 10) * 1e9)),
+    }),
+    getBalance: async () => BigInt(Math.round((opts.ethBalance ?? 1) * 1e18)),
+  };
+}
+
+describe('Morpho rescue via evaluate', () => {
+  test('dry-run for Morpho loan computes correct collateral top-up', async () => {
+    const currentHFWad = parseUnits('1.5', 18);
+    const maxTopUp = parseUnits('1', 18); // 1 WETH (18 decimals)
+    const maxHFWad = parseUnits('2.1', 18);
+    const slope = maxHFWad - currentHFWad;
+
+    const provider = createMorphoMockProvider({
+      collateralBalance: maxTopUp,
+      collateralAllowance: maxTopUp,
+      isAuthorized: true,
+      previewHF: (amount: bigint) => {
+        if (amount === 0n) return currentHFWad;
+        return currentHFWad + (slope * amount) / maxTopUp;
+      },
+    });
+
+    const { watchdog } = createWatchdog(
+      createConfig({
+        dryRun: true,
+        morphoRescueContract: MORPHO_RESCUE_CONTRACT,
+        maxTopUpWbtc: 1.0, // 1 WETH max (18-decimal collateral needs higher limit)
+      }),
+    );
+    injectProvider(watchdog, provider);
+
+    await watchdog.evaluate(createMorphoLoan(), WALLET);
+
+    const log = watchdog.getLog();
+    assert.equal(log.length, 1);
+    assert.equal(log[0]?.action, 'dry-run');
+    assert.ok(log[0]!.projectedHF >= 1.9, `Projected HF ${log[0]!.projectedHF} < 1.9`);
+  });
+
+  test('skips Morpho loan when morphoRescueContract is not configured', async () => {
+    const { watchdog } = createWatchdog(createConfig({ dryRun: true, morphoRescueContract: '' }));
+
+    await watchdog.evaluate(createMorphoLoan(), WALLET);
+
+    const log = watchdog.getLog();
+    assert.equal(log.length, 1);
+    assert.equal(log[0]?.action, 'skipped');
+    assert.match(log[0]?.reason ?? '', /Invalid or missing morphoRescueContract/);
+  });
+
+  test('skips Morpho loan when rescue contract is not authorized', async () => {
+    const provider = createMorphoMockProvider({
+      collateralBalance: parseUnits('1', 18),
+      collateralAllowance: parseUnits('1', 18),
+      isAuthorized: false,
+      previewHF: () => parseUnits('1.5', 18),
+    });
+
+    const { watchdog, messages } = createWatchdog(
+      createConfig({ dryRun: true, morphoRescueContract: MORPHO_RESCUE_CONTRACT }),
+    );
+    injectProvider(watchdog, provider);
+
+    await watchdog.evaluate(createMorphoLoan(), WALLET);
+
+    const log = watchdog.getLog();
+    assert.equal(log.length, 1);
+    assert.equal(log[0]?.action, 'skipped');
+    assert.match(log[0]?.reason ?? '', /not authorized/);
+    assert.equal(messages.length, 1);
+    assert.match(messages[0]!, /authorization missing/);
+  });
+
+  test('skips Morpho loan missing morphoMarketParams', async () => {
+    const loanWithoutParams = createMorphoLoan();
+    delete loanWithoutParams.morphoMarketParams;
+
+    const { watchdog } = createWatchdog(
+      createConfig({ dryRun: true, morphoRescueContract: MORPHO_RESCUE_CONTRACT }),
+    );
+
+    await watchdog.evaluate(loanWithoutParams, WALLET);
+
+    const log = watchdog.getLog();
+    assert.equal(log.length, 1);
+    assert.equal(log[0]?.action, 'skipped');
+    assert.match(log[0]?.reason ?? '', /missing collateral or market params/);
+  });
+
+  test('Morpho rescue uses correct collateral token (not WBTC)', async () => {
+    const currentHFWad = parseUnits('1.5', 18);
+    const maxTopUp = parseUnits('1', 18); // 1 WETH
+
+    const provider = createMorphoMockProvider({
+      collateralBalance: maxTopUp,
+      collateralAllowance: maxTopUp,
+      isAuthorized: true,
+      previewHF: (amount: bigint) => {
+        if (amount === 0n) return currentHFWad;
+        return parseUnits('2.0', 18);
+      },
+    });
+
+    const { watchdog, messages } = createWatchdog(
+      createConfig({ dryRun: true, morphoRescueContract: MORPHO_RESCUE_CONTRACT }),
+    );
+    injectProvider(watchdog, provider);
+
+    await watchdog.evaluate(createMorphoLoan(), WALLET);
+
+    const log = watchdog.getLog();
+    assert.equal(log[0]?.action, 'dry-run');
+    // Verify the notification mentions WETH not WBTC
+    assert.equal(messages.length, 1);
+    assert.match(messages[0]!, /WETH/);
+    assert.ok(!messages[0]!.includes('WBTC'), 'Should use WETH not WBTC for Morpho rescue');
   });
 });

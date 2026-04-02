@@ -645,6 +645,35 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                     </label>
 
                     <label className="grid gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Morpho rescue contract</span>
+                      <Input
+                        value={config.watchdog.morphoRescueContract}
+                        onChange={(e) => {
+                          const updated = {
+                            ...config,
+                            watchdog: {
+                              ...config.watchdog,
+                              morphoRescueContract: e.target.value.trim(),
+                            },
+                          };
+                          setConfig(updated);
+                        }}
+                        onBlur={(e) => {
+                          const updated = {
+                            ...config,
+                            watchdog: {
+                              ...config.watchdog,
+                              morphoRescueContract: e.target.value.trim(),
+                            },
+                          };
+                          void saveConfig(updated);
+                        }}
+                        placeholder="0x..."
+                        className="font-mono text-xs"
+                      />
+                    </label>
+
+                    <label className="grid gap-1.5 text-sm">
                       <span className="text-muted-foreground">Max gas (gwei)</span>
                       <Input
                         type="number"

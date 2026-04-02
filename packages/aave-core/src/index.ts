@@ -8,6 +8,7 @@ export type {
   FetchState,
   InterestRateCurvePoint,
   LoanPosition,
+  MorphoMarketParams,
   PollingConfig,
   RawUserReserve,
   RawUserReserveWithMarket,

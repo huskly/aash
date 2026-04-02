@@ -13,7 +13,9 @@ It now acts as a planner/submission bot:
 3. Calls the on-chain rescue contract in one transaction.
 4. Contract atomically supplies WBTC collateral and enforces post-HF safety.
 
-Rescue asset in v1 is fixed to **WBTC**.
+Rescue asset in v1 is fixed to **WBTC** for Aave positions.
+
+For Morpho Blue positions, the collateral asset is market-specific (e.g., WETH, WBTC) and is resolved automatically from the loan position data.
 
 ## Why This Is Safer
 
@@ -33,7 +35,8 @@ Watchdog config fields:
 - `cooldownMs` (default `1800000`)
 - `maxTopUpWbtc` (default `0.5`)
 - `deadlineSeconds` (default `300`)
-- `rescueContract` (required when `enabled=true`)
+- `rescueContract` (required for Aave rescue when `enabled=true`)
+- `morphoRescueContract` (required for Morpho rescue when `enabled=true`)
 - `maxGasGwei` (default `50`)
 
 Validation rules:
@@ -49,8 +52,11 @@ Environment overrides:
 - `WATCHDOG_TARGET_HF`
 - `WATCHDOG_MIN_RESULTING_HF`
 - `WATCHDOG_MAX_TOP_UP_WBTC`
+- `WATCHDOG_MORPHO_RESCUE_CONTRACT`
 
 ## On-Chain Requirements
+
+### Aave rescue
 
 Live mode requires:
 
@@ -59,6 +65,15 @@ Live mode requires:
 - monitored wallet has WBTC balance
 - monitored wallet has approved `rescueContract` to pull WBTC
 - WBTC is enabled as collateral on the user's Aave position (`pool.setUserUseReserveAsCollateral(WBTC, true)` called once from the monitored wallet)
+
+### Morpho Blue rescue
+
+Live mode additionally requires:
+
+- `morphoRescueContract` configured (separate contract from the Aave rescue)
+- monitored wallet has collateral token balance (market-specific, e.g., WETH)
+- monitored wallet has approved `morphoRescueContract` to pull the collateral token
+- monitored wallet has authorized the rescue contract on Morpho Blue: call `morpho.setAuthorization(morphoRescueContractAddress, true)` once from the monitored wallet (Morpho Blue address: `0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb`)
 
 ## Dry Run vs Live
 
@@ -83,7 +98,8 @@ Live:
 
 ## Typical Failure Reasons
 
-- Missing/invalid `rescueContract`
+- Missing/invalid `rescueContract` or `morphoRescueContract`
+- Morpho rescue contract not authorized on Morpho Blue
 - Cooldown active
 - No usable WBTC (balance/allowance/max cap)
 - Projected HF cannot reach `minResultingHF`
@@ -94,7 +110,8 @@ Live:
 ## Safety Checklist
 
 - Start with `dryRun=true`.
-- Configure `rescueContract` and verify address.
-- Pre-approve WBTC from monitored wallet to rescue contract.
+- Configure `rescueContract` (Aave) and/or `morphoRescueContract` (Morpho) and verify addresses.
+- Pre-approve collateral tokens from monitored wallet to rescue contract(s).
+- For Morpho: call `morpho.setAuthorization(morphoRescueContract, true)` from the monitored wallet.
 - Keep `maxTopUpWbtc` small during rollout.
 - Monitor Telegram alerts and `/api/watchdog/status`.

@@ -32,6 +32,8 @@ function samplePosition(overrides?: Partial<RawMorphoMarketPosition>): RawMorpho
         decimals: 18,
         priceUsd: 3000.0,
       },
+      oracleAddress: '0x0000000000000000000000000000000000000001',
+      irmAddress: '0x0000000000000000000000000000000000000002',
       // 86% LLTV in WAD format
       lltv: '860000000000000000',
       state: {
@@ -97,6 +99,17 @@ describe('fetchFromMorphoApi', () => {
     assert.equal(borrow.usdPrice, 1.0);
     assert.equal(borrow.usdValue, 500);
     assert.equal(borrow.borrowRate, 0.045);
+
+    // MorphoMarketParams
+    assert.ok(loan.morphoMarketParams);
+    assert.equal(loan.morphoMarketParams.loanToken, '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48');
+    assert.equal(
+      loan.morphoMarketParams.collateralToken,
+      '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+    );
+    assert.equal(loan.morphoMarketParams.oracle, '0x0000000000000000000000000000000000000001');
+    assert.equal(loan.morphoMarketParams.irm, '0x0000000000000000000000000000000000000002');
+    assert.equal(loan.morphoMarketParams.lltv, '860000000000000000');
   });
 
   it('filters out dust positions', async () => {

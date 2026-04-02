@@ -94,5 +94,6 @@ export const DEFAULT_WATCHDOG_CONFIG: WatchdogConfig = {
   maxTopUpWbtc: 0.5,
   deadlineSeconds: 300,
   rescueContract: '',
+  morphoRescueContract: '',
   maxGasGwei: 50,
 };

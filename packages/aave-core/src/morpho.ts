@@ -1,4 +1,4 @@
-import type { AssetPosition, LoanPosition } from './types.js';
+import type { AssetPosition, LoanPosition, MorphoMarketParams } from './types.js';
 
 const MORPHO_API_URL = 'https://api.morpho.org/graphql';
 const MIN_POSITION_USD = 0.01;
@@ -21,6 +21,8 @@ export type RawMorphoMarketPosition = {
     uniqueKey: string;
     loanAsset: MorphoAsset;
     collateralAsset: MorphoAsset | null;
+    oracleAddress: string;
+    irmAddress: string;
     lltv: string;
     state: MorphoMarketState;
   };
@@ -60,6 +62,8 @@ const MORPHO_POSITIONS_QUERY = `
             decimals
             priceUsd
           }
+          oracleAddress
+          irmAddress
           lltv
           state {
             utilization
@@ -194,6 +198,16 @@ export async function fetchFromMorphoApi(
     const collateralSymbol = pos.market.collateralAsset?.symbol.toUpperCase() ?? '?';
     const loanSymbol = pos.market.loanAsset.symbol.toUpperCase();
 
+    const morphoMarketParams: MorphoMarketParams | undefined = pos.market.collateralAsset
+      ? {
+          loanToken: pos.market.loanAsset.address.toLowerCase(),
+          collateralToken: pos.market.collateralAsset.address.toLowerCase(),
+          oracle: pos.market.oracleAddress.toLowerCase(),
+          irm: pos.market.irmAddress.toLowerCase(),
+          lltv: pos.market.lltv,
+        }
+      : undefined;
+
     return [
       {
         id: pos.market.uniqueKey,
@@ -202,6 +216,7 @@ export async function fetchFromMorphoApi(
         supplied,
         totalSuppliedUsd,
         totalBorrowedUsd,
+        morphoMarketParams,
       },
     ];
   });

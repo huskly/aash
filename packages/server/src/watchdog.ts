@@ -1,4 +1,9 @@
-import { computeLoanMetrics, DEFAULT_R_DEPLOY, type LoanPosition } from '@aave-monitor/core';
+import {
+  computeLoanMetrics,
+  DEFAULT_R_DEPLOY,
+  type LoanPosition,
+  type MorphoMarketParams,
+} from '@aave-monitor/core';
 import { formatUnits, Interface, JsonRpcProvider, parseUnits, Wallet } from 'ethers';
 import type { WatchdogConfig } from './storage.js';
 import type { TelegramClient } from './telegram.js';
@@ -6,6 +11,7 @@ import { logger } from './logger.js';
 
 const WBTC_CONTRACT = '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599';
 const WBTC_DECIMALS = 8;
+const MORPHO_BLUE_CONTRACT = '0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb';
 
 const ERC20_INTERFACE = new Interface([
   'function balanceOf(address owner) view returns (uint256)',
@@ -15,6 +21,15 @@ const ERC20_INTERFACE = new Interface([
 const RESCUE_INTERFACE = new Interface([
   'function rescue((address user,address asset,uint256 amount,uint256 minResultingHF,uint256 deadline) params)',
   'function previewResultingHF(address user, address asset, uint256 amount) view returns (uint256)',
+]);
+
+const MORPHO_RESCUE_INTERFACE = new Interface([
+  'function rescue((address user,(address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams,uint256 amount,uint256 minResultingHF,uint256 deadline) params)',
+  'function previewResultingHF((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams, address user, uint256 amount) view returns (uint256)',
+]);
+
+const MORPHO_INTERFACE = new Interface([
+  'function isAuthorized(address authorizer, address authorized) view returns (bool)',
 ]);
 
 const MIN_ETH_FOR_GAS = 0.005;
@@ -73,8 +88,9 @@ export class Watchdog {
   }
 
   async evaluate(loan: LoanPosition, walletAddress: string): Promise<void> {
-    // Watchdog rescue is Aave-specific; skip non-Aave loans.
-    if (!loan.marketName.startsWith('proto_')) return;
+    const isMorpho = loan.marketName.startsWith('morpho_');
+    const isAave = loan.marketName.startsWith('proto_');
+    if (!isMorpho && !isAave) return;
 
     const config = this.getConfig();
 
@@ -85,14 +101,36 @@ export class Watchdog {
       return;
     }
 
-    const rescueContract = config.rescueContract.trim();
+    // Resolve protocol-specific rescue contract and collateral info
+    const rescueContract = isMorpho
+      ? config.morphoRescueContract.trim()
+      : config.rescueContract.trim();
     if (!/^0x[a-fA-F0-9]{40}$/.test(rescueContract)) {
       this.addLog({
         timestamp: Date.now(),
         loanId: loan.id,
         wallet: walletAddress,
         action: 'skipped',
-        reason: 'Invalid or missing rescueContract in watchdog config',
+        reason: `Invalid or missing ${isMorpho ? 'morphoRescueContract' : 'rescueContract'} in watchdog config`,
+        healthFactor,
+        topUpWbtc: 0,
+        projectedHF: healthFactor,
+      });
+      return;
+    }
+
+    // For Morpho, we need marketParams and the collateral token info
+    const collateralToken = isMorpho ? loan.supplied[0]?.address : WBTC_CONTRACT;
+    const collateralDecimals = isMorpho ? (loan.supplied[0]?.decimals ?? 8) : WBTC_DECIMALS;
+    const morphoParams = isMorpho ? loan.morphoMarketParams : undefined;
+
+    if (isMorpho && (!collateralToken || !morphoParams)) {
+      this.addLog({
+        timestamp: Date.now(),
+        loanId: loan.id,
+        wallet: walletAddress,
+        action: 'skipped',
+        reason: 'Morpho loan missing collateral or market params',
         healthFactor,
         topUpWbtc: 0,
         projectedHF: healthFactor,
@@ -118,68 +156,112 @@ export class Watchdog {
       return;
     }
 
-    let topUpWbtc: number;
+    let topUpAmount: number;
     let projectedHF: number;
     let amountRaw: bigint;
     const provider = this.getProvider();
     const minHFWad = this.toWad(config.minResultingHF);
 
-    try {
-      const [walletBalanceRaw, allowanceRaw] = await Promise.all([
-        this.getTokenBalance(provider, WBTC_CONTRACT, walletAddress),
-        this.getTokenAllowance(provider, WBTC_CONTRACT, walletAddress, rescueContract),
-      ]);
+    // Build protocol-specific preview/submit helpers
+    const previewFn = isMorpho
+      ? (amount: bigint) =>
+          this.previewResultingHFMorpho(
+            provider,
+            rescueContract,
+            walletAddress,
+            amount,
+            morphoParams!,
+          )
+      : (amount: bigint) =>
+          this.previewResultingHF(provider, rescueContract, walletAddress, amount);
 
-      const maxTopUpRaw = parseUnits(config.maxTopUpWbtc.toFixed(WBTC_DECIMALS), WBTC_DECIMALS);
-      const availableRaw = minBigInt(walletBalanceRaw, allowanceRaw, maxTopUpRaw);
-      if (availableRaw <= 0n) {
+    try {
+      const balanceChecks: Promise<bigint>[] = [
+        this.getTokenBalance(provider, collateralToken!, walletAddress),
+        this.getTokenAllowance(provider, collateralToken!, walletAddress, rescueContract),
+      ];
+
+      // For Morpho, also verify authorization on the Morpho Blue contract
+      if (isMorpho) {
+        balanceChecks.push(
+          this.checkMorphoAuthorization(provider, walletAddress, rescueContract).then(
+            (authorized) => (authorized ? BigInt(Number.MAX_SAFE_INTEGER) : 0n),
+          ),
+        );
+      }
+
+      const checkResults = await Promise.all(balanceChecks);
+      const walletBalanceRaw = checkResults[0]!;
+      const allowanceRaw = checkResults[1]!;
+
+      if (isMorpho && (checkResults[2] ?? 0n) === 0n) {
         this.addLog({
           timestamp: now,
           loanId: loan.id,
           wallet: walletAddress,
           action: 'skipped',
-          reason: 'No available WBTC (balance/allowance/maxTopUp all exhausted)',
+          reason: 'Morpho rescue contract not authorized — call morpho.setAuthorization()',
           healthFactor,
           topUpWbtc: 0,
           projectedHF: healthFactor,
         });
         await this.notify(
-          `🚨 <b>Watchdog: WBTC unavailable</b>\n\n` +
+          `🚨 <b>Watchdog: Morpho authorization missing</b>\n\n` +
             `Loan: ${loan.id} (${loan.marketName})\n` +
             `HF: <b>${healthFactor.toFixed(4)}</b>\n` +
-            `Wallet WBTC: ${formatUnits(walletBalanceRaw, WBTC_DECIMALS)}\n` +
-            `Allowance WBTC: ${formatUnits(allowanceRaw, WBTC_DECIMALS)}`,
+            `Rescue contract ${rescueContract} is not authorized on Morpho Blue.\n` +
+            `Call morpho.setAuthorization(rescueContract, true) from the monitored wallet.`,
+        );
+        return;
+      }
+
+      const maxTopUpRaw = parseUnits(
+        config.maxTopUpWbtc.toFixed(collateralDecimals),
+        collateralDecimals,
+      );
+      const availableRaw = minBigInt(walletBalanceRaw, allowanceRaw, maxTopUpRaw);
+      if (availableRaw <= 0n) {
+        const collateralSymbol = isMorpho ? (loan.supplied[0]?.symbol ?? 'collateral') : 'WBTC';
+        this.addLog({
+          timestamp: now,
+          loanId: loan.id,
+          wallet: walletAddress,
+          action: 'skipped',
+          reason: `No available ${collateralSymbol} (balance/allowance/maxTopUp all exhausted)`,
+          healthFactor,
+          topUpWbtc: 0,
+          projectedHF: healthFactor,
+        });
+        await this.notify(
+          `🚨 <b>Watchdog: ${collateralSymbol} unavailable</b>\n\n` +
+            `Loan: ${loan.id} (${loan.marketName})\n` +
+            `HF: <b>${healthFactor.toFixed(4)}</b>\n` +
+            `Wallet ${collateralSymbol}: ${formatUnits(walletBalanceRaw, collateralDecimals)}\n` +
+            `Allowance ${collateralSymbol}: ${formatUnits(allowanceRaw, collateralDecimals)}`,
         );
         return;
       }
 
       const targetHFWad = this.toWad(config.targetHF);
 
-      let computedAmount = await this.findRequiredAmountRaw(
-        provider,
-        rescueContract,
-        walletAddress,
+      let computedAmount = await this.findRequiredAmountRawGeneric(
+        previewFn,
         targetHFWad,
         availableRaw,
       );
 
       if (computedAmount === null) {
-        computedAmount = await this.findRequiredAmountRaw(
-          provider,
-          rescueContract,
-          walletAddress,
-          minHFWad,
-          availableRaw,
-        );
+        computedAmount = await this.findRequiredAmountRawGeneric(previewFn, minHFWad, availableRaw);
       }
 
       if (computedAmount === null || computedAmount <= 0n) {
+        const collateralSymbol = isMorpho ? (loan.supplied[0]?.symbol ?? 'collateral') : 'WBTC';
         this.addLog({
           timestamp: now,
           loanId: loan.id,
           wallet: walletAddress,
           action: 'skipped',
-          reason: 'Insufficient WBTC to achieve minimum resulting HF',
+          reason: `Insufficient ${collateralSymbol} to achieve minimum resulting HF`,
           healthFactor,
           topUpWbtc: 0,
           projectedHF: healthFactor,
@@ -188,7 +270,7 @@ export class Watchdog {
           `🚨 <b>Watchdog: Rescue not feasible</b>\n\n` +
             `Loan: ${loan.id} (${loan.marketName})\n` +
             `Current HF: <b>${healthFactor.toFixed(4)}</b>\n` +
-            `Max usable WBTC: ${formatUnits(availableRaw, WBTC_DECIMALS)}\n` +
+            `Max usable ${collateralSymbol}: ${formatUnits(availableRaw, collateralDecimals)}\n` +
             `Min resulting HF: ${config.minResultingHF}`,
         );
         return;
@@ -196,12 +278,7 @@ export class Watchdog {
 
       amountRaw = computedAmount;
 
-      const projectedHFWad = await this.previewResultingHF(
-        provider,
-        rescueContract,
-        walletAddress,
-        amountRaw,
-      );
+      const projectedHFWad = await previewFn(amountRaw);
 
       if (projectedHFWad < minHFWad) {
         this.addLog({
@@ -211,13 +288,13 @@ export class Watchdog {
           action: 'skipped',
           reason: 'Projected HF below minimum resulting HF threshold',
           healthFactor,
-          topUpWbtc: this.toNumberAmount(amountRaw),
+          topUpWbtc: this.toFormattedAmount(amountRaw, collateralDecimals),
           projectedHF: this.wadToNumber(projectedHFWad),
         });
         return;
       }
 
-      topUpWbtc = this.toNumberAmount(amountRaw);
+      topUpAmount = this.toFormattedAmount(amountRaw, collateralDecimals);
       projectedHF = this.wadToNumber(projectedHFWad);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -240,15 +317,17 @@ export class Watchdog {
       return;
     }
 
+    const collateralSymbol = isMorpho ? (loan.supplied[0]?.symbol ?? 'collateral') : 'WBTC';
+
     if (config.dryRun) {
       this.addLog({
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
         action: 'dry-run',
-        reason: `Would submit atomic rescue with ${topUpWbtc.toFixed(8)} WBTC`,
+        reason: `Would submit atomic rescue with ${topUpAmount.toFixed(8)} ${collateralSymbol}`,
         healthFactor,
-        topUpWbtc,
+        topUpWbtc: topUpAmount,
         projectedHF,
       });
       this.cooldowns.set(stateKey, now);
@@ -258,7 +337,7 @@ export class Watchdog {
           `Current HF: <b>${healthFactor.toFixed(4)}</b> (trigger: ${config.triggerHF})\n` +
           `Target HF: ${config.targetHF}\n` +
           `Min resulting HF: ${config.minResultingHF}\n\n` +
-          `Would top-up: <b>${topUpWbtc.toFixed(8)} WBTC</b>\n` +
+          `Would top-up: <b>${topUpAmount.toFixed(8)} ${collateralSymbol}</b>\n` +
           `Projected HF: <b>${projectedHF.toFixed(4)}</b>`,
       );
       return;
@@ -272,7 +351,7 @@ export class Watchdog {
         action: 'skipped',
         reason: 'No private key configured for live rescue execution',
         healthFactor,
-        topUpWbtc,
+        topUpWbtc: topUpAmount,
         projectedHF,
       });
       return;
@@ -287,13 +366,13 @@ export class Watchdog {
         action: 'skipped',
         reason: `Gas price ${gasPriceGwei.toFixed(1)} gwei exceeds max ${config.maxGasGwei} gwei`,
         healthFactor,
-        topUpWbtc,
+        topUpWbtc: topUpAmount,
         projectedHF,
       });
       await this.notify(
         `⛽ <b>Watchdog: Gas too high</b>\n\n` +
           `Current: ${gasPriceGwei.toFixed(1)} gwei (max: ${config.maxGasGwei})\n` +
-          `Skipping rescue for ${topUpWbtc.toFixed(8)} WBTC`,
+          `Skipping rescue for ${topUpAmount.toFixed(8)} ${collateralSymbol}`,
       );
       return;
     }
@@ -307,35 +386,44 @@ export class Watchdog {
         action: 'skipped',
         reason: `Insufficient ETH for gas: ${ethBalance.toFixed(6)} ETH`,
         healthFactor,
-        topUpWbtc,
+        topUpWbtc: topUpAmount,
         projectedHF,
       });
       await this.notify(
         `⛽ <b>Watchdog: Insufficient ETH for gas</b>\n\n` +
           `Balance: ${ethBalance.toFixed(6)} ETH\n` +
-          `Skipping rescue for ${topUpWbtc.toFixed(8)} WBTC`,
+          `Skipping rescue for ${topUpAmount.toFixed(8)} ${collateralSymbol}`,
       );
       return;
     }
 
     const deadline = Math.floor(Date.now() / 1000) + config.deadlineSeconds;
     try {
-      const txHash = await this.submitRescueTransaction(
-        walletAddress,
-        rescueContract,
-        amountRaw,
-        minHFWad,
-        deadline,
-      );
+      const txHash = isMorpho
+        ? await this.submitMorphoRescueTransaction(
+            walletAddress,
+            rescueContract,
+            morphoParams!,
+            amountRaw,
+            minHFWad,
+            deadline,
+          )
+        : await this.submitRescueTransaction(
+            walletAddress,
+            rescueContract,
+            amountRaw,
+            minHFWad,
+            deadline,
+          );
 
       this.addLog({
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
         action: 'rescue',
-        reason: `Rescue submitted with ${topUpWbtc.toFixed(8)} WBTC`,
+        reason: `Rescue submitted with ${topUpAmount.toFixed(8)} ${collateralSymbol}`,
         healthFactor,
-        topUpWbtc,
+        topUpWbtc: topUpAmount,
         projectedHF,
         txHash,
       });
@@ -344,7 +432,7 @@ export class Watchdog {
       await this.notify(
         `✅ <b>Watchdog: Atomic rescue executed</b>\n\n` +
           `Loan: ${loan.id} (${loan.marketName})\n` +
-          `Top-up: <b>${topUpWbtc.toFixed(8)} WBTC</b>\n` +
+          `Top-up: <b>${topUpAmount.toFixed(8)} ${collateralSymbol}</b>\n` +
           `Projected HF: <b>${projectedHF.toFixed(4)}</b>\n` +
           `Tx: <code>${txHash}</code>`,
       );
@@ -357,7 +445,7 @@ export class Watchdog {
         action: 'skipped',
         reason: `Rescue tx failed: ${message}`,
         healthFactor,
-        topUpWbtc,
+        topUpWbtc: topUpAmount,
         projectedHF,
       });
       this.cooldowns.set(stateKey, Date.now());
@@ -365,16 +453,14 @@ export class Watchdog {
       await this.notify(
         `❌ <b>Watchdog: Rescue failed</b>\n\n` +
           `Loan: ${loan.id} (${loan.marketName})\n` +
-          `Top-up attempted: <b>${topUpWbtc.toFixed(8)} WBTC</b>\n` +
+          `Top-up attempted: <b>${topUpAmount.toFixed(8)} ${collateralSymbol}</b>\n` +
           `Error: ${message}`,
       );
     }
   }
 
-  private async findRequiredAmountRaw(
-    provider: JsonRpcProvider,
-    rescueContract: string,
-    user: string,
+  private async findRequiredAmountRawGeneric(
+    previewFn: (amount: bigint) => Promise<bigint>,
     targetHF: bigint,
     maxAmount: bigint,
   ): Promise<bigint | null> {
@@ -382,10 +468,7 @@ export class Watchdog {
 
     // HF is linear in amount: HF(a) = currentHF + slope * a
     // Two points (amount=0, amount=maxAmount) determine the line exactly.
-    const [currentHF, maxHF] = await Promise.all([
-      this.previewResultingHF(provider, rescueContract, user, 0n),
-      this.previewResultingHF(provider, rescueContract, user, maxAmount),
-    ]);
+    const [currentHF, maxHF] = await Promise.all([previewFn(0n), previewFn(maxAmount)]);
 
     if (currentHF >= targetHF) return 0n;
     if (maxHF < targetHF) return null;
@@ -398,7 +481,7 @@ export class Watchdog {
     const clamped = estimate > maxAmount ? maxAmount : estimate;
 
     // Verify the estimate with a single confirmation call
-    const verifiedHF = await this.previewResultingHF(provider, rescueContract, user, clamped);
+    const verifiedHF = await previewFn(clamped);
     if (verifiedHF >= targetHF) return clamped;
 
     // Estimate undershot (oracle drift between preview calls). Refine once: interpolate
@@ -408,12 +491,7 @@ export class Watchdog {
       const gap = maxAmount - clamped;
       const refinedEstimate = clamped + (gap * (targetHF - verifiedHF)) / (maxHF - verifiedHF) + 1n;
       const refinedClamped = refinedEstimate > maxAmount ? maxAmount : refinedEstimate;
-      const refinedHF = await this.previewResultingHF(
-        provider,
-        rescueContract,
-        user,
-        refinedClamped,
-      );
+      const refinedHF = await previewFn(refinedClamped);
       if (refinedHF >= targetHF) return refinedClamped;
     }
 
@@ -471,6 +549,84 @@ export class Watchdog {
     return tx.hash;
   }
 
+  private async previewResultingHFMorpho(
+    provider: JsonRpcProvider,
+    rescueContract: string,
+    user: string,
+    amountRaw: bigint,
+    morphoParams: MorphoMarketParams,
+  ): Promise<bigint> {
+    const marketParamsTuple = {
+      loanToken: morphoParams.loanToken,
+      collateralToken: morphoParams.collateralToken,
+      oracle: morphoParams.oracle,
+      irm: morphoParams.irm,
+      lltv: BigInt(morphoParams.lltv),
+    };
+    const data = MORPHO_RESCUE_INTERFACE.encodeFunctionData('previewResultingHF', [
+      marketParamsTuple,
+      user,
+      amountRaw,
+    ]);
+    const result = await provider.call({ to: rescueContract, data });
+    const [hf] = MORPHO_RESCUE_INTERFACE.decodeFunctionResult('previewResultingHF', result);
+    return BigInt(hf);
+  }
+
+  private async submitMorphoRescueTransaction(
+    from: string,
+    rescueContract: string,
+    morphoParams: MorphoMarketParams,
+    amountRaw: bigint,
+    minResultingHF: bigint,
+    deadline: number,
+  ): Promise<string> {
+    const wallet = this.getWallet();
+    if (wallet.address.toLowerCase() !== from.toLowerCase()) {
+      throw new Error(
+        `Signer address mismatch: private key controls ${wallet.address} but expected ${from}. ` +
+          `The configured private key must correspond to the monitored wallet address.`,
+      );
+    }
+
+    const marketParamsTuple = {
+      loanToken: morphoParams.loanToken,
+      collateralToken: morphoParams.collateralToken,
+      oracle: morphoParams.oracle,
+      irm: morphoParams.irm,
+      lltv: BigInt(morphoParams.lltv),
+    };
+
+    const data = MORPHO_RESCUE_INTERFACE.encodeFunctionData('rescue', [
+      {
+        user: from,
+        marketParams: marketParamsTuple,
+        amount: amountRaw,
+        minResultingHF,
+        deadline,
+      },
+    ]);
+
+    const tx = await wallet.sendTransaction({ to: rescueContract, data });
+    const receipt = await tx.wait();
+    if (!receipt || receipt.status === 0) {
+      throw new Error(`Transaction reverted: ${tx.hash}`);
+    }
+
+    return tx.hash;
+  }
+
+  private async checkMorphoAuthorization(
+    provider: JsonRpcProvider,
+    authorizer: string,
+    authorized: string,
+  ): Promise<boolean> {
+    const data = MORPHO_INTERFACE.encodeFunctionData('isAuthorized', [authorizer, authorized]);
+    const result = await provider.call({ to: MORPHO_BLUE_CONTRACT, data });
+    const [isAuthorized] = MORPHO_INTERFACE.decodeFunctionResult('isAuthorized', result);
+    return Boolean(isAuthorized);
+  }
+
   private async getTokenBalance(
     provider: JsonRpcProvider,
     token: string,
@@ -522,8 +678,8 @@ export class Watchdog {
     return this.wallet;
   }
 
-  private toNumberAmount(value: bigint): number {
-    return Number(formatUnits(value, WBTC_DECIMALS));
+  private toFormattedAmount(value: bigint, decimals: number): number {
+    return Number(formatUnits(value, decimals));
   }
 
   private toWad(value: number): bigint {
