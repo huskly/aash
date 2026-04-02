@@ -40,6 +40,11 @@ Watchdog config fields:
 - `morphoRescueContract` (required for Morpho rescue when `enabled=true`)
 - `maxGasGwei` (default `50`)
 
+Note:
+
+- `rescueContract` is the persisted config field for the Aave rescue contract.
+- `/api/watchdog/status` exposes this as `aaveRescueContract` to make the protocol explicit.
+
 Validation rules:
 
 - `targetHF > triggerHF`
@@ -93,7 +98,9 @@ Live:
 
 ## API and Telegram
 
-- `GET /api/watchdog/status`: returns summary + recent action log, including separate Aave/Morpho rescue contract fields plus per-action `topUpAmount` and `topUpAssetSymbol`
+- `GET /api/watchdog/status`: returns summary + recent action log
+- Status summary fields include `aaveRescueContract` and `morphoRescueContract`
+- Recent action entries include `protocol`, `topUpAmount`, and `topUpAssetSymbol`
 - `GET /api/config`: includes watchdog section
 - `PUT /api/config`: updates watchdog fields
 - `/watchdog`: shows watchdog status and recent actions
@@ -114,4 +121,4 @@ Live:
 - Configure `rescueContract` (Aave) and/or `morphoRescueContract` (Morpho) and verify addresses.
 - Pre-approve collateral tokens from monitored wallet to rescue contract(s).
 - Keep `maxTopUpAmount` small during rollout.
-- Monitor Telegram alerts and `/api/watchdog/status`.
+- Monitor Telegram alerts and `/api/watchdog/status` for the protocol-specific contract fields and recent top-up activity.
