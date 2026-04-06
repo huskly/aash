@@ -57,6 +57,7 @@ Backend server notes:
 - Monitor runtime is driven by enabled wallets (not Telegram enablement), so watchdog polling can run without Telegram configured.
 - Morpho Blue positions are fetched from `https://api.morpho.org/graphql` via `fetchFromMorphoApi()` in `packages/aave-core/src/morpho.ts`.
 - Morpho positions use API-provided USD prices (no CoinGecko dependency).
+- Aave pricing uses the `COINGECKO_IDS_BY_SYMBOL` alias map in `packages/aave-core/src/constants.ts`; add wrapped/alias symbols there when Aave reserve symbols differ from CoinGecko slugs (for example `cbBTC` -> `coinbase-wrapped-btc`).
 - Morpho markets use a single LLTV (Liquidation LTV) mapped to both `maxLTV` and `liqThreshold` on `AssetPosition`.
 - Morpho loan IDs use the market `uniqueKey`; market names follow the `morpho_<COLLATERAL>_<LOAN>` convention.
 - Interest rate / utilization curve charts are not available for Morpho markets (Aave-specific on-chain telemetry).

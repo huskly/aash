@@ -17,6 +17,7 @@ export const COINGECKO_IDS_BY_SYMBOL: Record<string, string> = {
   ETH: 'ethereum',
   WETH: 'weth',
   WBTC: 'wrapped-bitcoin',
+  CBBTC: 'coinbase-wrapped-btc',
   USDC: 'usd-coin',
   USDT: 'tether',
   DAI: 'dai',
