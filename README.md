@@ -27,7 +27,7 @@ A React + Vite dashboard that auto-loads Aave and Morpho Blue loan positions fro
 - Portfolio average HF color bands:
   - `HF > 2.2`: normal operation (green)
   - `HF 1.8–2.2`: no new leverage, monitor closely
-  - `HF 1.5–1.8`: top up collateral or reduce debt
+  - `HF 1.5–1.8`: reduce debt or add collateral
   - `HF < 1.5`: mandatory deleveraging (red)
 - Auto-fetched collateral/borrow amounts and market metadata.
 - Price enrichment with CoinGecko, including symbol aliases for wrapped assets such as `cbBTC`.
@@ -191,13 +191,13 @@ Quick start:
 Detailed user manual: **[docs/watchdog-user-manual.md](docs/watchdog-user-manual.md)**.  
 Deployment/ops runbook: **[docs/rescue-v1-ops.md](docs/rescue-v1-ops.md)**.
 
-The watchdog monitors loan health and can execute an atomic on-chain rescue when HF drops below threshold. It computes a WBTC top-up amount and submits a single `rescue(...)` transaction to the rescue contract.
+The watchdog monitors loan health and can execute an atomic on-chain rescue when HF drops below threshold. It computes a debt repay amount and submits a single `rescue(...)` transaction to the rescue contract, which repays the loan's borrowed stablecoin (e.g. USDC/USDT) from the wallet.
 
 - Runs after each monitor poll, evaluating all loans
 - Monitor polling runs when at least one wallet is enabled (Telegram can stay disabled)
 - Dry-run mode by default (notifies what _would_ happen, no on-chain transactions)
 - Live mode requires `WATCHDOG_PRIVATE_KEY` env var
-- Live mode requires allowance for the rescue asset being topped up: WBTC for Aave, market collateral for Morpho
+- Live mode requires allowance for the debt token (e.g. USDC) to be pulled by the rescue contract
 - API: `GET /api/watchdog/status` for status and recent action log
 - Telegram: `/watchdog` command for status and recent actions
 - Config: watchdog section in `GET/PUT /api/config`

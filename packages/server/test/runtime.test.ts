@@ -58,7 +58,7 @@ function createWatchdogConfig(): WatchdogConfig {
     targetHF: 1.9,
     minResultingHF: 1.85,
     cooldownMs: 30 * 60 * 1000,
-    maxTopUpAmount: 0.5,
+    maxRepayAmount: 500,
     deadlineSeconds: 300,
     rescueContract: '0x2222222222222222222222222222222222222222',
     morphoRescueContract: '',
