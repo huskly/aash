@@ -47,6 +47,11 @@ export type MonitorStatus = {
   watchdogLog: WatchdogLogEntry[];
 };
 
+type WalletNotification = {
+  kind: 'transition' | 'recovery' | 'all-clear' | 'reminder';
+  message: string;
+};
+
 export class Monitor {
   private states = new Map<string, LoanAlertState>();
   private timerId: ReturnType<typeof setInterval> | null = null;
@@ -212,6 +217,7 @@ export class Monitor {
 
     const now = Date.now();
     const activeStateKeys = new Set<string>();
+    const pendingNotifications: WalletNotification[] = [];
 
     for (const loan of loans) {
       const metrics = computeLoanMetrics(loan, DEFAULT_R_DEPLOY);
@@ -277,10 +283,10 @@ export class Monitor {
             stuckDuration >= config.polling.reminderIntervalMs &&
             now - existing.lastNotifiedAt >= config.polling.reminderIntervalMs
           ) {
-            await this.sendNotification(
-              chatId,
-              this.formatReminder(address, label, loan, metrics, zone, stuckDuration),
-            );
+            pendingNotifications.push({
+              kind: 'reminder',
+              message: this.formatReminder(loan, metrics, zone, stuckDuration),
+            });
             existing.lastNotifiedAt = now;
           }
         }
@@ -296,10 +302,10 @@ export class Monitor {
           isCritical || existing.consecutiveChecks >= config.polling.debounceChecks;
 
         if (chatId && (shouldNotify || isCritical)) {
-          await this.sendNotification(
-            chatId,
-            this.formatZoneTransition(address, label, loan, metrics, zone, previousZone),
-          );
+          pendingNotifications.push({
+            kind: 'transition',
+            message: this.formatZoneTransition(loan, metrics, zone, previousZone),
+          });
           existing.lastNotifiedZone = zone.name;
           existing.lastNotifiedAt = now;
         }
@@ -307,17 +313,27 @@ export class Monitor {
         const cooldownElapsed = now - existing.lastNotifiedAt >= config.polling.cooldownMs;
         if (chatId && cooldownElapsed) {
           if (zone.name === 'safe') {
-            await this.sendNotification(chatId, this.formatAllClear(address, label, loan, metrics));
+            pendingNotifications.push({
+              kind: 'all-clear',
+              message: this.formatAllClear(loan, metrics),
+            });
           } else {
-            await this.sendNotification(
-              chatId,
-              this.formatRecovery(address, label, loan, metrics, zone, previousZone),
-            );
+            pendingNotifications.push({
+              kind: 'recovery',
+              message: this.formatRecovery(loan, metrics, zone, previousZone),
+            });
           }
           existing.lastNotifiedZone = zone.name;
           existing.lastNotifiedAt = now;
         }
       }
+    }
+
+    if (chatId && pendingNotifications.length > 0) {
+      await this.sendNotification(
+        chatId,
+        this.formatWalletNotification(address, label, pendingNotifications),
+      );
     }
 
     // Watchdog evaluation pass — runs after alerts so notifications always go out first
@@ -357,8 +373,6 @@ export class Monitor {
   }
 
   private formatZoneTransition(
-    address: string,
-    label: string | undefined,
     loan: {
       marketName: string;
       borrowed: { symbol: string }[];
@@ -373,14 +387,12 @@ export class Monitor {
     zone: Zone,
     previousZone: Zone,
   ): string {
-    const walletLabel = label ? `${label} (${this.shortAddr(address)})` : this.shortAddr(address);
     const hf = Number.isFinite(metrics.healthFactor) ? metrics.healthFactor.toFixed(2) : '∞';
     const adjHf = Number.isFinite(metrics.adjustedHF) ? metrics.adjustedHF.toFixed(2) : '∞';
 
     const lines = [
       `${zone.emoji} <b>${zone.label}</b> — Loan Health Changed`,
       '',
-      `Wallet: <code>${walletLabel}</code>`,
       `Market: ${loan.marketName}`,
       `Borrowed: $${loan.totalBorrowedUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${loan.borrowed.map((b) => b.symbol).join('+')} | Collateral: $${loan.totalSuppliedUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
       '',
@@ -400,21 +412,17 @@ export class Monitor {
   }
 
   private formatRecovery(
-    address: string,
-    label: string | undefined,
     loan: { marketName: string; borrowed: { symbol: string }[] },
     metrics: { healthFactor: number; adjustedHF: number },
     zone: Zone,
     previousZone: Zone,
   ): string {
-    const walletLabel = label ? `${label} (${this.shortAddr(address)})` : this.shortAddr(address);
     const hf = Number.isFinite(metrics.healthFactor) ? metrics.healthFactor.toFixed(2) : '∞';
     const adjHf = Number.isFinite(metrics.adjustedHF) ? metrics.adjustedHF.toFixed(2) : '∞';
 
     return [
       `${zone.emoji} <b>IMPROVING</b> — Zone Recovery`,
       '',
-      `Wallet: <code>${walletLabel}</code>`,
       `Market: ${loan.marketName} · ${loan.borrowed.map((b) => b.symbol).join('+')}`,
       `Health Factor: <b>${hf}</b> · Adjusted: <b>${adjHf}</b>`,
       `Zone: ${zone.emoji} ${zone.label} (was ${previousZone.emoji} ${previousZone.label})`,
@@ -422,19 +430,15 @@ export class Monitor {
   }
 
   private formatAllClear(
-    address: string,
-    label: string | undefined,
     loan: { marketName: string; borrowed: { symbol: string }[] },
     metrics: { healthFactor: number; adjustedHF: number },
   ): string {
-    const walletLabel = label ? `${label} (${this.shortAddr(address)})` : this.shortAddr(address);
     const hf = Number.isFinite(metrics.healthFactor) ? metrics.healthFactor.toFixed(2) : '∞';
     const adjHf = Number.isFinite(metrics.adjustedHF) ? metrics.adjustedHF.toFixed(2) : '∞';
 
     return [
       `\u{1F7E2} <b>ALL CLEAR</b> — Back to Safe`,
       '',
-      `Wallet: <code>${walletLabel}</code>`,
       `Market: ${loan.marketName} · ${loan.borrowed.map((b) => b.symbol).join('+')}`,
       `Health Factor: <b>${hf}</b> · Adjusted: <b>${adjHf}</b>`,
       '',
@@ -443,14 +447,11 @@ export class Monitor {
   }
 
   private formatReminder(
-    address: string,
-    label: string | undefined,
     loan: { marketName: string; borrowed: { symbol: string }[] },
     metrics: { healthFactor: number; adjustedHF: number },
     zone: Zone,
     stuckDurationMs: number,
   ): string {
-    const walletLabel = label ? `${label} (${this.shortAddr(address)})` : this.shortAddr(address);
     const hf = Number.isFinite(metrics.healthFactor) ? metrics.healthFactor.toFixed(2) : '∞';
     const adjHf = Number.isFinite(metrics.adjustedHF) ? metrics.adjustedHF.toFixed(2) : '∞';
     const timeAgo = this.formatTimeAgo(stuckDurationMs);
@@ -458,12 +459,45 @@ export class Monitor {
     return [
       `${zone.emoji} <b>REMINDER</b> — Still in ${zone.label} zone`,
       '',
-      `Wallet: <code>${walletLabel}</code>`,
       `Market: ${loan.marketName} · ${loan.borrowed.map((b) => b.symbol).join('+')}`,
       `Health Factor: <b>${hf}</b> · Adjusted: <b>${adjHf}</b>`,
       `Duration: ${timeAgo} ago`,
       `Action: ${zone.action}`,
     ].join('\n');
+  }
+
+  private formatWalletNotification(
+    address: string,
+    label: string | undefined,
+    notifications: WalletNotification[],
+  ): string {
+    const walletLabel = label ? `${label} (${this.shortAddr(address)})` : this.shortAddr(address);
+    const title = notifications.length === 1 ? '<b>Loan Alert</b>' : '<b>Loan Alerts</b>';
+
+    return [
+      title,
+      `Wallet: <code>${walletLabel}</code>`,
+      '',
+      ...notifications.flatMap((notification, index) => [
+        ...(notifications.length > 1
+          ? [`<b>${this.notificationLabel(notification.kind, index)}</b>`]
+          : []),
+        notification.message,
+        ...(index < notifications.length - 1 ? [''] : []),
+      ]),
+    ].join('\n');
+  }
+
+  private notificationLabel(kind: WalletNotification['kind'], index: number): string {
+    const base =
+      kind === 'transition'
+        ? 'Loan Health Change'
+        : kind === 'recovery'
+          ? 'Recovery'
+          : kind === 'all-clear'
+            ? 'All Clear'
+            : 'Reminder';
+    return `${base} ${index + 1}`;
   }
 
   private formatTimeAgo(durationMs: number): string {

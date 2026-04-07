@@ -44,7 +44,7 @@ Backend server notes:
 - Backend Graph/CoinGecko keys are read from `VITE_THE_GRAPH_API_KEY` and `VITE_COINGECKO_API_KEY` (legacy non-`VITE_` names still work as fallback).
 - `POST /api/status/refresh` forces an immediate monitor recomputation and returns fresh `/api/status` payload.
 - `GET /api/reserves/telemetry?market=<market>&asset=<address>&symbol=<optional>` returns live on-chain reserve utilization and interest-rate-strategy parameters for the selected borrowed asset.
-- Telegram `/status` includes portfolio average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and collateral margin of safety (USD and %) alongside per-loan health factors. Telegram alerts include per-asset liquidation prices for each collateral asset.
+- Telegram `/status` includes portfolio average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and collateral margin of safety (USD and %) alongside per-loan health factors. Telegram alerts include per-asset liquidation prices for each collateral asset, and multiple loan alerts for the same wallet are grouped into a single Telegram message per poll.
 - Telegram `/status` includes `Last updated` with absolute timestamp + relative time (e.g. `3 minutes ago`).
 - Telegram command metadata (`/status`, `/refresh`, `/watchdog`, `/help`) is synced on server startup via `setMyCommands`, so Telegram slash-command suggestions stay current.
 - Reminder alerts include a human-readable elapsed duration label (e.g. `2h 40m ago`).
