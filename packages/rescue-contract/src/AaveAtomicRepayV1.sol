@@ -37,24 +37,6 @@ interface IAaveOracle {
     function getAssetPrice(address asset) external view returns (uint256);
 }
 
-interface IAaveProtocolDataProvider {
-    function getReserveConfigurationData(address asset)
-        external
-        view
-        returns (
-            uint256 decimals,
-            uint256 ltv,
-            uint256 liquidationThreshold,
-            uint256 liquidationBonus,
-            uint256 reserveFactor,
-            bool usageAsCollateralEnabled,
-            bool borrowingEnabled,
-            bool stableBorrowRateEnabled,
-            bool isActive,
-            bool isFrozen
-        );
-}
-
 contract AaveAtomicRepayV1 {
     struct RescueParams {
         address user;
@@ -69,6 +51,7 @@ contract AaveAtomicRepayV1 {
     error AssetNotSupported();
     error InvalidAddress();
     error InvalidAmount();
+    error UserNotOwner();
     error ResultingHFTooLow(uint256 actual, uint256 minimum);
     error TokenTransferFailed();
     error TokenApproveFailed();
@@ -90,7 +73,6 @@ contract AaveAtomicRepayV1 {
 
     address public owner;
     IAavePool public immutable pool;
-    IAaveProtocolDataProvider public immutable dataProvider;
     IAaveOracle public immutable oracle;
 
     mapping(address => bool) public supportedAsset;
@@ -100,17 +82,13 @@ contract AaveAtomicRepayV1 {
         _;
     }
 
-    constructor(address owner_, address pool_, address addressesProvider_, address dataProvider_) {
-        if (
-            owner_ == address(0) || pool_ == address(0) || addressesProvider_ == address(0)
-                || dataProvider_ == address(0)
-        ) {
+    constructor(address owner_, address pool_, address addressesProvider_) {
+        if (owner_ == address(0) || pool_ == address(0) || addressesProvider_ == address(0)) {
             revert InvalidAddress();
         }
 
         owner = owner_;
         pool = IAavePool(pool_);
-        dataProvider = IAaveProtocolDataProvider(dataProvider_);
         oracle = IAaveOracle(IAaveAddressesProvider(addressesProvider_).getPriceOracle());
 
         emit OwnershipTransferred(address(0), owner_);
@@ -129,9 +107,9 @@ contract AaveAtomicRepayV1 {
     }
 
     function rescue(RescueParams calldata params) external onlyOwner {
+        if (params.user != owner) revert UserNotOwner();
         if (params.deadline < block.timestamp) revert DeadlineExpired();
         if (!supportedAsset[params.asset]) revert AssetNotSupported();
-        if (params.user == address(0)) revert InvalidAddress();
         if (params.amount == 0) revert InvalidAmount();
 
         (, , , , , uint256 hfBefore) = pool.getUserAccountData(params.user);

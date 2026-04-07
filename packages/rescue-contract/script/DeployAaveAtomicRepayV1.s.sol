@@ -9,13 +9,11 @@ contract DeployAaveAtomicRepayV1 is Script {
         address owner = vm.envAddress("RESCUE_OWNER");
         address pool = vm.envAddress("AAVE_POOL");
         address addressesProvider = vm.envAddress("AAVE_ADDRESSES_PROVIDER");
-        address dataProvider = vm.envAddress("AAVE_PROTOCOL_DATA_PROVIDER");
         address debtToken = vm.envAddress("DEBT_TOKEN_ADDRESS");
 
         vm.startBroadcast();
 
-        AaveAtomicRepayV1 rescue =
-            new AaveAtomicRepayV1(owner, pool, addressesProvider, dataProvider);
+        AaveAtomicRepayV1 rescue = new AaveAtomicRepayV1(owner, pool, addressesProvider);
         rescue.setSupportedAsset(debtToken, true);
 
         vm.stopBroadcast();

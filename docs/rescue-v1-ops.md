@@ -28,7 +28,6 @@ Set env vars for the Aave deploy script:
 export RESCUE_OWNER=0x...                # Contract owner (monitored wallet address)
 export AAVE_POOL=0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2
 export AAVE_ADDRESSES_PROVIDER=0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e
-export AAVE_PROTOCOL_DATA_PROVIDER=0x0a16f2FCC0D44FaE41cc54e079281D84A363bECD
 export DEBT_TOKEN_ADDRESS=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48  # e.g. USDC
 export RPC_URL=https://rpc.mevblocker.io  # or https://eth.llamarpc.com
 ```

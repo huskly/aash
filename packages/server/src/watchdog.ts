@@ -98,13 +98,20 @@ export class Watchdog {
       return;
     }
 
-    // Resolve protocol-specific rescue contract and debt token info
+    // Resolve protocol-specific rescue contract and debt token info.
+    // For Aave, pick the borrowed asset with the largest USD value — repaying
+    // the biggest debt component gives the most HF improvement per dollar.
+    const primaryDebt = isMorpho
+      ? loan.borrowed[0]
+      : loan.borrowed.length > 1
+        ? loan.borrowed.reduce((a, b) => (b.usdValue > a.usdValue ? b : a))
+        : loan.borrowed[0];
     const debtToken = isMorpho
-      ? (loan.morphoMarketParams?.loanToken ?? loan.borrowed[0]?.address)
-      : loan.borrowed[0]?.address;
-    const debtDecimals = loan.borrowed[0]?.decimals ?? 6;
+      ? (loan.morphoMarketParams?.loanToken ?? primaryDebt?.address)
+      : primaryDebt?.address;
+    const debtDecimals = primaryDebt?.decimals ?? 6;
     const morphoParams = isMorpho ? loan.morphoMarketParams : undefined;
-    const debtSymbol = loan.borrowed[0]?.symbol ?? 'USDC';
+    const debtSymbol = primaryDebt?.symbol ?? 'USDC';
     const rescueContract = isMorpho
       ? config.morphoRescueContract.trim()
       : config.rescueContract.trim();
@@ -449,37 +456,30 @@ export class Watchdog {
   ): Promise<bigint | null> {
     if (maxAmount <= 0n) return null;
 
-    // HF is linear in amount: HF(a) = currentHF + slope * a
-    // Two points (amount=0, amount=maxAmount) determine the line exactly.
+    // HF(amount) is monotonically increasing (more repay → higher HF) but
+    // hyperbolic, not linear: HF = C / (D - x). We use a bounded binary
+    // search to find the minimum amount that meets targetHF.
     const [currentHF, maxHF] = await Promise.all([previewFn(0n), previewFn(maxAmount)]);
 
     if (currentHF >= targetHF) return 0n;
     if (maxHF < targetHF) return null;
 
-    // Linear interpolation: amount = maxAmount * (targetHF - currentHF) / (maxHF - currentHF)
-    // Add 1 to round up so we meet the target rather than falling just short.
-    const numerator = maxAmount * (targetHF - currentHF);
-    const denominator = maxHF - currentHF;
-    const estimate = numerator / denominator + 1n;
-    const clamped = estimate > maxAmount ? maxAmount : estimate;
-
-    // Verify the estimate with a single confirmation call
-    const verifiedHF = await previewFn(clamped);
-    if (verifiedHF >= targetHF) return clamped;
-
-    // Estimate undershot (oracle drift between preview calls). Refine once: interpolate
-    // between the undershot estimate (verifiedHF) and maxAmount (maxHF) to avoid
-    // falling back to the full maxAmount unnecessarily.
-    if (verifiedHF < targetHF && maxHF > verifiedHF) {
-      const gap = maxAmount - clamped;
-      const refinedEstimate = clamped + (gap * (targetHF - verifiedHF)) / (maxHF - verifiedHF) + 1n;
-      const refinedClamped = refinedEstimate > maxAmount ? maxAmount : refinedEstimate;
-      const refinedHF = await previewFn(refinedClamped);
-      if (refinedHF >= targetHF) return refinedClamped;
+    let lo = 0n;
+    let hi = maxAmount;
+    // Each iteration halves the search range via one read-only eth_call.
+    // 20 iterations narrows a 1M-token range to < 1 base unit.
+    const MAX_ITERATIONS = 20;
+    for (let i = 0; i < MAX_ITERATIONS && lo < hi; i++) {
+      const mid = (lo + hi) / 2n;
+      const midHF = await previewFn(mid);
+      if (midHF >= targetHF) {
+        hi = mid;
+      } else {
+        lo = mid + 1n;
+      }
     }
 
-    // Last resort: use maxAmount since we already know it achieves the target.
-    return maxAmount;
+    return hi;
   }
 
   private async previewResultingHF(

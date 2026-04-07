@@ -128,7 +128,7 @@ contract MockMorpho {
 
 contract MorphoAtomicRepayV1Test is Test {
     address internal owner = makeAddr("owner");
-    address internal user = makeAddr("user");
+    address internal attacker = makeAddr("attacker");
 
     MockToken internal loanToken;
     MockToken internal collateralToken;
@@ -162,13 +162,13 @@ contract MorphoAtomicRepayV1Test is Test {
         vm.prank(owner);
         rescue.setSupportedMarket(marketParams, true);
 
-        loanToken.mint(user, 1_000_000_000);
-        vm.prank(user);
+        loanToken.mint(owner, 1_000_000_000);
+        vm.prank(owner);
         loanToken.approve(address(rescue), type(uint256).max);
 
         morpho.setPosition(
             marketId,
-            user,
+            owner,
             MockMorpho.PositionData({supplyShares: 0, borrowShares: 70_000_000, collateral: 100_000_000})
         );
 
@@ -187,21 +187,35 @@ contract MorphoAtomicRepayV1Test is Test {
 
     function test_owner_only() external {
         MorphoAtomicRepayV1.RescueParams memory params = MorphoAtomicRepayV1.RescueParams({
-            user: user,
+            user: owner,
             marketParams: marketParams,
             amount: 10_000_000,
             minResultingHF: 1.0e18,
             deadline: block.timestamp + 1
         });
 
-        vm.prank(user);
+        vm.prank(attacker);
         vm.expectRevert(MorphoAtomicRepayV1.NotOwner.selector);
+        rescue.rescue(params);
+    }
+
+    function test_reverts_if_user_not_owner() external {
+        MorphoAtomicRepayV1.RescueParams memory params = MorphoAtomicRepayV1.RescueParams({
+            user: attacker,
+            marketParams: marketParams,
+            amount: 10_000_000,
+            minResultingHF: 1.0e18,
+            deadline: block.timestamp + 1
+        });
+
+        vm.prank(owner);
+        vm.expectRevert(MorphoAtomicRepayV1.UserNotOwner.selector);
         rescue.rescue(params);
     }
 
     function test_reverts_if_deadline_expired() external {
         MorphoAtomicRepayV1.RescueParams memory params = MorphoAtomicRepayV1.RescueParams({
-            user: user,
+            user: owner,
             marketParams: marketParams,
             amount: 10_000_000,
             minResultingHF: 1.0e18,
@@ -215,7 +229,7 @@ contract MorphoAtomicRepayV1Test is Test {
 
     function test_executes_rescue_and_reduces_debt() external {
         MorphoAtomicRepayV1.RescueParams memory params = MorphoAtomicRepayV1.RescueParams({
-            user: user,
+            user: owner,
             marketParams: marketParams,
             amount: 10_000_000,
             minResultingHF: 1.0e18,
@@ -225,18 +239,18 @@ contract MorphoAtomicRepayV1Test is Test {
         vm.prank(owner);
         rescue.rescue(params);
 
-        (, uint128 borrowSharesAfter,) = morpho.position(marketId, user);
+        (, uint128 borrowSharesAfter,) = morpho.position(marketId, owner);
         assertLt(uint256(borrowSharesAfter), 70_000_000);
     }
 
     function test_preview_increases_with_repay_amount() external view {
-        uint256 hf0 = rescue.previewResultingHF(marketParams, user, 0);
-        uint256 hf1 = rescue.previewResultingHF(marketParams, user, 10_000_000);
+        uint256 hf0 = rescue.previewResultingHF(marketParams, owner, 0);
+        uint256 hf1 = rescue.previewResultingHF(marketParams, owner, 10_000_000);
         assertGt(hf1, hf0);
     }
 
     function test_preview_returns_max_when_debt_fully_repaid() external view {
-        uint256 hf = rescue.previewResultingHF(marketParams, user, 70_000_000);
+        uint256 hf = rescue.previewResultingHF(marketParams, owner, 70_000_000);
         assertEq(hf, type(uint256).max);
     }
 }

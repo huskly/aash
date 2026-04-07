@@ -109,26 +109,13 @@ contract MockOracle {
     }
 }
 
-contract MockDataProvider {
-    uint256 public liquidationThreshold = 7_500;
-
-    function getReserveConfigurationData(address)
-        external
-        view
-        returns (uint256, uint256, uint256, uint256, uint256, bool, bool, bool, bool, bool)
-    {
-        return (6, 7_000, liquidationThreshold, 0, 0, true, true, false, true, false);
-    }
-}
-
 contract AaveAtomicRepayV1Test is Test {
     address internal owner = makeAddr("owner");
-    address internal user = makeAddr("user");
+    address internal attacker = makeAddr("attacker");
 
     MockToken internal token;
     MockPool internal pool;
     MockOracle internal oracle;
-    MockDataProvider internal dataProvider;
     MockAddressesProvider internal addressesProvider;
     AaveAtomicRepayV1 internal rescue;
 
@@ -136,23 +123,21 @@ contract AaveAtomicRepayV1Test is Test {
         token = new MockToken();
         pool = new MockPool();
         oracle = new MockOracle(100_000_000); // 1.0 in base (8-decimal oracle)
-        dataProvider = new MockDataProvider();
         addressesProvider = new MockAddressesProvider(address(oracle));
 
-        rescue =
-            new AaveAtomicRepayV1(owner, address(pool), address(addressesProvider), address(dataProvider));
+        rescue = new AaveAtomicRepayV1(owner, address(pool), address(addressesProvider));
 
         vm.prank(owner);
         rescue.setSupportedAsset(address(token), true);
 
-        token.mint(user, 1_000_000_000); // 1000 USDC
-        vm.prank(user);
+        token.mint(owner, 1_000_000_000); // 1000 USDC
+        vm.prank(owner);
         token.approve(address(rescue), type(uint256).max);
 
         // collateral=1_000_000, debt=750_000, lt=7500 → HF = (1_000_000 * 7500) / (750_000 * 10000) = 1.0
         // We set HF=1.2e18 for a slightly healthier starting point
         pool.setUserAccountData(
-            user,
+            owner,
             MockPool.AccountData({
                 totalCollateralBase: 1_000_000,
                 totalDebtBase: 750_000,
@@ -166,21 +151,35 @@ contract AaveAtomicRepayV1Test is Test {
 
     function test_owner_only() external {
         AaveAtomicRepayV1.RescueParams memory params = AaveAtomicRepayV1.RescueParams({
-            user: user,
+            user: owner,
             asset: address(token),
             amount: 10_000_000,
             minResultingHF: 1.1e18,
             deadline: block.timestamp + 1
         });
 
-        vm.prank(user);
+        vm.prank(attacker);
         vm.expectRevert(AaveAtomicRepayV1.NotOwner.selector);
+        rescue.rescue(params);
+    }
+
+    function test_reverts_if_user_not_owner() external {
+        AaveAtomicRepayV1.RescueParams memory params = AaveAtomicRepayV1.RescueParams({
+            user: attacker,
+            asset: address(token),
+            amount: 10_000_000,
+            minResultingHF: 1.1e18,
+            deadline: block.timestamp + 1
+        });
+
+        vm.prank(owner);
+        vm.expectRevert(AaveAtomicRepayV1.UserNotOwner.selector);
         rescue.rescue(params);
     }
 
     function test_reverts_if_deadline_expired() external {
         AaveAtomicRepayV1.RescueParams memory params = AaveAtomicRepayV1.RescueParams({
-            user: user,
+            user: owner,
             asset: address(token),
             amount: 10_000_000,
             minResultingHF: 1.1e18,
@@ -194,7 +193,7 @@ contract AaveAtomicRepayV1Test is Test {
 
     function test_executes_rescue_and_reduces_debt() external {
         AaveAtomicRepayV1.RescueParams memory params = AaveAtomicRepayV1.RescueParams({
-            user: user,
+            user: owner,
             asset: address(token),
             amount: 10_000_000, // 10 USDC
             minResultingHF: 1.1e18,
@@ -204,14 +203,14 @@ contract AaveAtomicRepayV1Test is Test {
         vm.prank(owner);
         rescue.rescue(params);
 
-        (, uint256 debtAfter, , , , uint256 hfAfter) = pool.getUserAccountData(user);
+        (, uint256 debtAfter, , , , uint256 hfAfter) = pool.getUserAccountData(owner);
         assertLt(debtAfter, 750_000);
         assertGe(hfAfter, 1.1e18);
     }
 
     function test_reverts_if_resulting_hf_too_low() external {
         AaveAtomicRepayV1.RescueParams memory params = AaveAtomicRepayV1.RescueParams({
-            user: user,
+            user: owner,
             asset: address(token),
             amount: 100, // tiny repay, won't move HF much
             minResultingHF: 5.0e18,
@@ -225,12 +224,12 @@ contract AaveAtomicRepayV1Test is Test {
 
     function test_reverts_if_asset_not_supported() external {
         MockToken unsupported = new MockToken();
-        unsupported.mint(user, 1_000_000_000);
-        vm.prank(user);
+        unsupported.mint(owner, 1_000_000_000);
+        vm.prank(owner);
         unsupported.approve(address(rescue), type(uint256).max);
 
         AaveAtomicRepayV1.RescueParams memory params = AaveAtomicRepayV1.RescueParams({
-            user: user,
+            user: owner,
             asset: address(unsupported),
             amount: 10_000_000,
             minResultingHF: 1.1e18,
@@ -243,8 +242,8 @@ contract AaveAtomicRepayV1Test is Test {
     }
 
     function test_preview_increases_with_repay_amount() external view {
-        uint256 hf0 = rescue.previewResultingHF(user, address(token), 0);
-        uint256 hf1 = rescue.previewResultingHF(user, address(token), 10_000_000);
+        uint256 hf0 = rescue.previewResultingHF(owner, address(token), 0);
+        uint256 hf1 = rescue.previewResultingHF(owner, address(token), 10_000_000);
         assertGt(hf1, hf0);
     }
 
@@ -252,7 +251,7 @@ contract AaveAtomicRepayV1Test is Test {
         // Repay enough to wipe all debt: 750_000 debt base, oracle price 100_000_000 (1e8),
         // 6 decimals → repayValueBase = amount * 1e8 / 1e6 = amount * 100
         // Need repayValueBase >= 750_000 → amount >= 7_500
-        uint256 hf = rescue.previewResultingHF(user, address(token), 10_000_000);
+        uint256 hf = rescue.previewResultingHF(owner, address(token), 10_000_000);
         assertEq(hf, type(uint256).max);
     }
 }

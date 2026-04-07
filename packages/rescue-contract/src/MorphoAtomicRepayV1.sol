@@ -76,6 +76,7 @@ contract MorphoAtomicRepayV1 {
     error MarketNotSupported();
     error InvalidAddress();
     error InvalidAmount();
+    error UserNotOwner();
     error NoBorrowPosition();
     error ResultingHFTooLow(uint256 actual, uint256 minimum);
     error TokenTransferFailed();
@@ -132,8 +133,8 @@ contract MorphoAtomicRepayV1 {
     }
 
     function rescue(RescueParams calldata params) external onlyOwner {
+        if (params.user != owner) revert UserNotOwner();
         if (params.deadline < block.timestamp) revert DeadlineExpired();
-        if (params.user == address(0)) revert InvalidAddress();
         if (params.amount == 0) revert InvalidAmount();
 
         bytes32 id = _marketId(params.marketParams);
