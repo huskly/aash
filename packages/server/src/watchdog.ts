@@ -467,8 +467,11 @@ export class Watchdog {
     let lo = 0n;
     let hi = maxAmount;
     // Each iteration halves the search range via one read-only eth_call.
-    // 20 iterations narrows a 1M-token range to < 1 base unit.
-    const MAX_ITERATIONS = 20;
+    // Scale iterations to the bit-width of maxAmount so precision reaches
+    // ~1 base unit even for large 18-decimal ranges.
+    let bits = 0;
+    for (let v = maxAmount; v > 0n; v >>= 1n) bits++;
+    const MAX_ITERATIONS = Math.min(bits, 64);
     for (let i = 0; i < MAX_ITERATIONS && lo < hi; i++) {
       const mid = (lo + hi) / 2n;
       const midHF = await previewFn(mid);
