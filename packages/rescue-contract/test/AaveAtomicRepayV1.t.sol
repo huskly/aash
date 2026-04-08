@@ -154,7 +154,7 @@ contract AaveAtomicRepayV1Test is Test {
             user: owner,
             asset: address(token),
             amount: 10_000_000,
-            minResultingHF: 1.1e18,
+            minResultingHf: 1.1e18,
             deadline: block.timestamp + 1
         });
 
@@ -168,7 +168,7 @@ contract AaveAtomicRepayV1Test is Test {
             user: attacker,
             asset: address(token),
             amount: 10_000_000,
-            minResultingHF: 1.1e18,
+            minResultingHf: 1.1e18,
             deadline: block.timestamp + 1
         });
 
@@ -182,7 +182,7 @@ contract AaveAtomicRepayV1Test is Test {
             user: owner,
             asset: address(token),
             amount: 10_000_000,
-            minResultingHF: 1.1e18,
+            minResultingHf: 1.1e18,
             deadline: block.timestamp - 1
         });
 
@@ -196,7 +196,7 @@ contract AaveAtomicRepayV1Test is Test {
             user: owner,
             asset: address(token),
             amount: 10_000_000, // 10 USDC
-            minResultingHF: 1.1e18,
+            minResultingHf: 1.1e18,
             deadline: block.timestamp + 10
         });
 
@@ -213,7 +213,7 @@ contract AaveAtomicRepayV1Test is Test {
             user: owner,
             asset: address(token),
             amount: 100, // tiny repay, won't move HF much
-            minResultingHF: 5.0e18,
+            minResultingHf: 5.0e18,
             deadline: block.timestamp + 10
         });
 
@@ -232,7 +232,7 @@ contract AaveAtomicRepayV1Test is Test {
             user: owner,
             asset: address(unsupported),
             amount: 10_000_000,
-            minResultingHF: 1.1e18,
+            minResultingHf: 1.1e18,
             deadline: block.timestamp + 10
         });
 
@@ -242,8 +242,8 @@ contract AaveAtomicRepayV1Test is Test {
     }
 
     function test_preview_increases_with_repay_amount() external view {
-        uint256 hf0 = rescue.previewResultingHF(owner, address(token), 0);
-        uint256 hf1 = rescue.previewResultingHF(owner, address(token), 10_000_000);
+        uint256 hf0 = rescue.previewResultingHf(owner, address(token), 0);
+        uint256 hf1 = rescue.previewResultingHf(owner, address(token), 10_000_000);
         assertGt(hf1, hf0);
     }
 
@@ -251,7 +251,7 @@ contract AaveAtomicRepayV1Test is Test {
         // Repay enough to wipe all debt: 750_000 debt base, oracle price 100_000_000 (1e8),
         // 6 decimals → repayValueBase = amount * 1e8 / 1e6 = amount * 100
         // Need repayValueBase >= 750_000 → amount >= 7_500
-        uint256 hf = rescue.previewResultingHF(owner, address(token), 10_000_000);
+        uint256 hf = rescue.previewResultingHf(owner, address(token), 10_000_000);
         assertEq(hf, type(uint256).max);
     }
 }

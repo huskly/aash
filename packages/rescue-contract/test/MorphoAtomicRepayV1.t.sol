@@ -118,11 +118,17 @@ contract MockMorpho {
         if (sharesToReduce > uint256(pos.borrowShares)) {
             sharesToReduce = uint256(pos.borrowShares);
         }
-        pos.borrowShares -= uint128(sharesToReduce);
-        mkt.totalBorrowAssets -= uint128(assets);
-        mkt.totalBorrowShares -= uint128(sharesToReduce);
+        pos.borrowShares -= _toUint128(sharesToReduce);
+        mkt.totalBorrowAssets -= _toUint128(assets);
+        mkt.totalBorrowShares -= _toUint128(sharesToReduce);
 
         return (assets, sharesToReduce);
+    }
+
+    function _toUint128(uint256 value) internal pure returns (uint128) {
+        require(value <= type(uint128).max, "uint128 overflow");
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint128(value);
     }
 }
 
@@ -190,7 +196,7 @@ contract MorphoAtomicRepayV1Test is Test {
             user: owner,
             marketParams: marketParams,
             amount: 10_000_000,
-            minResultingHF: 1.0e18,
+            minResultingHf: 1.0e18,
             deadline: block.timestamp + 1
         });
 
@@ -204,7 +210,7 @@ contract MorphoAtomicRepayV1Test is Test {
             user: attacker,
             marketParams: marketParams,
             amount: 10_000_000,
-            minResultingHF: 1.0e18,
+            minResultingHf: 1.0e18,
             deadline: block.timestamp + 1
         });
 
@@ -218,7 +224,7 @@ contract MorphoAtomicRepayV1Test is Test {
             user: owner,
             marketParams: marketParams,
             amount: 10_000_000,
-            minResultingHF: 1.0e18,
+            minResultingHf: 1.0e18,
             deadline: block.timestamp - 1
         });
 
@@ -232,7 +238,7 @@ contract MorphoAtomicRepayV1Test is Test {
             user: owner,
             marketParams: marketParams,
             amount: 10_000_000,
-            minResultingHF: 1.0e18,
+            minResultingHf: 1.0e18,
             deadline: block.timestamp + 10
         });
 
@@ -244,13 +250,13 @@ contract MorphoAtomicRepayV1Test is Test {
     }
 
     function test_preview_increases_with_repay_amount() external view {
-        uint256 hf0 = rescue.previewResultingHF(marketParams, owner, 0);
-        uint256 hf1 = rescue.previewResultingHF(marketParams, owner, 10_000_000);
+        uint256 hf0 = rescue.previewResultingHf(marketParams, owner, 0);
+        uint256 hf1 = rescue.previewResultingHf(marketParams, owner, 10_000_000);
         assertGt(hf1, hf0);
     }
 
     function test_preview_returns_max_when_debt_fully_repaid() external view {
-        uint256 hf = rescue.previewResultingHF(marketParams, owner, 70_000_000);
+        uint256 hf = rescue.previewResultingHf(marketParams, owner, 70_000_000);
         assertEq(hf, type(uint256).max);
     }
 }

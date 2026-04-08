@@ -15,13 +15,13 @@ const ERC20_INTERFACE = new Interface([
 ]);
 
 const RESCUE_INTERFACE = new Interface([
-  'function rescue((address user,address asset,uint256 amount,uint256 minResultingHF,uint256 deadline) params)',
-  'function previewResultingHF(address user, address asset, uint256 amount) view returns (uint256)',
+  'function rescue((address user,address asset,uint256 amount,uint256 minResultingHf,uint256 deadline) params)',
+  'function previewResultingHf(address user, address asset, uint256 amount) view returns (uint256)',
 ]);
 
 const MORPHO_RESCUE_INTERFACE = new Interface([
-  'function rescue((address user,(address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams,uint256 amount,uint256 minResultingHF,uint256 deadline) params)',
-  'function previewResultingHF((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams, address user, uint256 amount) view returns (uint256)',
+  'function rescue((address user,(address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams,uint256 amount,uint256 minResultingHf,uint256 deadline) params)',
+  'function previewResultingHf((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams, address user, uint256 amount) view returns (uint256)',
 ]);
 
 const MIN_ETH_FOR_GAS = 0.005;
@@ -175,7 +175,7 @@ export class Watchdog {
     // Build protocol-specific preview/submit helpers
     const previewFn = isMorpho
       ? (amount: bigint) =>
-          this.previewResultingHFMorpho(
+          this.previewResultingHfMorpho(
             provider,
             rescueContract,
             walletAddress,
@@ -183,7 +183,7 @@ export class Watchdog {
             morphoParams!,
           )
       : (amount: bigint) =>
-          this.previewResultingHF(provider, rescueContract, walletAddress, debtToken!, amount);
+          this.previewResultingHf(provider, rescueContract, walletAddress, debtToken!, amount);
 
     try {
       const [walletBalanceRaw, allowanceRaw] = await Promise.all([
@@ -485,20 +485,20 @@ export class Watchdog {
     return hi;
   }
 
-  private async previewResultingHF(
+  private async previewResultingHf(
     provider: JsonRpcProvider,
     rescueContract: string,
     user: string,
     debtTokenAddress: string,
     amountRaw: bigint,
   ): Promise<bigint> {
-    const data = RESCUE_INTERFACE.encodeFunctionData('previewResultingHF', [
+    const data = RESCUE_INTERFACE.encodeFunctionData('previewResultingHf', [
       user,
       debtTokenAddress,
       amountRaw,
     ]);
     const result = await provider.call({ to: rescueContract, data });
-    const [hf] = RESCUE_INTERFACE.decodeFunctionResult('previewResultingHF', result);
+    const [hf] = RESCUE_INTERFACE.decodeFunctionResult('previewResultingHf', result);
     return BigInt(hf);
   }
 
@@ -507,7 +507,7 @@ export class Watchdog {
     rescueContract: string,
     debtTokenAddress: string,
     amountRaw: bigint,
-    minResultingHF: bigint,
+    minResultingHf: bigint,
     deadline: number,
   ): Promise<string> {
     const wallet = this.getWallet();
@@ -523,7 +523,7 @@ export class Watchdog {
         user: from,
         asset: debtTokenAddress,
         amount: amountRaw,
-        minResultingHF,
+        minResultingHf,
         deadline,
       },
     ]);
@@ -537,7 +537,7 @@ export class Watchdog {
     return tx.hash;
   }
 
-  private async previewResultingHFMorpho(
+  private async previewResultingHfMorpho(
     provider: JsonRpcProvider,
     rescueContract: string,
     user: string,
@@ -551,13 +551,13 @@ export class Watchdog {
       irm: morphoParams.irm,
       lltv: BigInt(morphoParams.lltv),
     };
-    const data = MORPHO_RESCUE_INTERFACE.encodeFunctionData('previewResultingHF', [
+    const data = MORPHO_RESCUE_INTERFACE.encodeFunctionData('previewResultingHf', [
       marketParamsTuple,
       user,
       amountRaw,
     ]);
     const result = await provider.call({ to: rescueContract, data });
-    const [hf] = MORPHO_RESCUE_INTERFACE.decodeFunctionResult('previewResultingHF', result);
+    const [hf] = MORPHO_RESCUE_INTERFACE.decodeFunctionResult('previewResultingHf', result);
     return BigInt(hf);
   }
 
@@ -566,7 +566,7 @@ export class Watchdog {
     rescueContract: string,
     morphoParams: MorphoMarketParams,
     amountRaw: bigint,
-    minResultingHF: bigint,
+    minResultingHf: bigint,
     deadline: number,
   ): Promise<string> {
     const wallet = this.getWallet();
@@ -590,7 +590,7 @@ export class Watchdog {
         user: from,
         marketParams: marketParamsTuple,
         amount: amountRaw,
-        minResultingHF,
+        minResultingHf,
         deadline,
       },
     ]);

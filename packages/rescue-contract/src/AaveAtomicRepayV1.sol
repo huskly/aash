@@ -42,7 +42,7 @@ contract AaveAtomicRepayV1 {
         address user;
         address asset;
         uint256 amount;
-        uint256 minResultingHF;
+        uint256 minResultingHf;
         uint256 deadline;
     }
 
@@ -64,7 +64,7 @@ contract AaveAtomicRepayV1 {
         uint256 amount,
         uint256 hfBefore,
         uint256 hfAfter,
-        uint256 minRequiredHF
+        uint256 minRequiredHf
     );
 
     uint256 private constant BPS_DENOMINATOR = 10_000;
@@ -72,13 +72,13 @@ contract AaveAtomicRepayV1 {
     uint256 private constant VARIABLE_RATE_MODE = 2;
 
     address public owner;
-    IAavePool public immutable pool;
-    IAaveOracle public immutable oracle;
+    IAavePool public immutable POOL;
+    IAaveOracle public immutable ORACLE;
 
     mapping(address => bool) public supportedAsset;
 
     modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
+        _onlyOwner();
         _;
     }
 
@@ -88,8 +88,8 @@ contract AaveAtomicRepayV1 {
         }
 
         owner = owner_;
-        pool = IAavePool(pool_);
-        oracle = IAaveOracle(IAaveAddressesProvider(addressesProvider_).getPriceOracle());
+        POOL = IAavePool(pool_);
+        ORACLE = IAaveOracle(IAaveAddressesProvider(addressesProvider_).getPriceOracle());
 
         emit OwnershipTransferred(address(0), owner_);
     }
@@ -112,16 +112,16 @@ contract AaveAtomicRepayV1 {
         if (!supportedAsset[params.asset]) revert AssetNotSupported();
         if (params.amount == 0) revert InvalidAmount();
 
-        (, , , , , uint256 hfBefore) = pool.getUserAccountData(params.user);
+        (, , , , , uint256 hfBefore) = POOL.getUserAccountData(params.user);
 
         _transferIn(params.asset, params.user, params.amount);
-        _forceApprove(params.asset, address(pool));
+        _forceApprove(params.asset, address(POOL));
 
-        pool.repay(params.asset, params.amount, VARIABLE_RATE_MODE, params.user);
+        POOL.repay(params.asset, params.amount, VARIABLE_RATE_MODE, params.user);
 
-        (, , , , , uint256 hfAfter) = pool.getUserAccountData(params.user);
-        if (hfAfter < params.minResultingHF) {
-            revert ResultingHFTooLow(hfAfter, params.minResultingHF);
+        (, , , , , uint256 hfAfter) = POOL.getUserAccountData(params.user);
+        if (hfAfter < params.minResultingHf) {
+            revert ResultingHFTooLow(hfAfter, params.minResultingHf);
         }
 
         emit RescueExecuted(
@@ -130,11 +130,11 @@ contract AaveAtomicRepayV1 {
             params.amount,
             hfBefore,
             hfAfter,
-            params.minResultingHF
+            params.minResultingHf
         );
     }
 
-    function previewResultingHF(address user, address asset, uint256 repayAmount)
+    function previewResultingHf(address user, address asset, uint256 repayAmount)
         external
         view
         returns (uint256)
@@ -147,18 +147,18 @@ contract AaveAtomicRepayV1 {
             ,
             uint256 currentLiquidationThreshold,
             ,
-            uint256 currentHF
-        ) = pool.getUserAccountData(user);
+            uint256 currentHf
+        ) = POOL.getUserAccountData(user);
 
         if (totalDebtBase == 0) {
             return type(uint256).max;
         }
 
         if (repayAmount == 0) {
-            return currentHF;
+            return currentHf;
         }
 
-        uint256 assetPrice = oracle.getAssetPrice(asset);
+        uint256 assetPrice = ORACLE.getAssetPrice(asset);
         uint8 assetDecimals = IERC20Metadata(asset).decimals();
 
         uint256 repayValueBase = (repayAmount * assetPrice) / (10 ** assetDecimals);
@@ -189,5 +189,9 @@ contract AaveAtomicRepayV1 {
             bool ok = IERC20(asset).approve(spender, type(uint256).max);
             if (!ok) revert TokenApproveFailed();
         }
+    }
+
+    function _onlyOwner() internal view {
+        if (msg.sender != owner) revert NotOwner();
     }
 }

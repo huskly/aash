@@ -19,8 +19,8 @@ const ERC20_INTERFACE = new Interface([
 ]);
 
 const RESCUE_INTERFACE = new Interface([
-  'function rescue((address user,address asset,uint256 amount,uint256 minResultingHF,uint256 deadline) params)',
-  'function previewResultingHF(address user, address asset, uint256 amount) view returns (uint256)',
+  'function rescue((address user,address asset,uint256 amount,uint256 minResultingHf,uint256 deadline) params)',
+  'function previewResultingHf(address user, address asset, uint256 amount) view returns (uint256)',
 ]);
 
 function createConfig(overrides: Partial<WatchdogConfig> = {}): WatchdogConfig {
@@ -98,7 +98,7 @@ function createMockProvider(opts: {
   const debtToken = opts.debtTokenAddress ?? USDC_CONTRACT;
   const balanceOfSelector = ERC20_INTERFACE.getFunction('balanceOf')!.selector;
   const allowanceSelector = ERC20_INTERFACE.getFunction('allowance')!.selector;
-  const previewSelector = RESCUE_INTERFACE.getFunction('previewResultingHF')!.selector;
+  const previewSelector = RESCUE_INTERFACE.getFunction('previewResultingHf')!.selector;
 
   return {
     call: async (tx: { to: string; data: string }) => {
@@ -114,9 +114,9 @@ function createMockProvider(opts: {
       }
 
       if (tx.to.toLowerCase() === RESCUE_CONTRACT.toLowerCase() && selector === previewSelector) {
-        const decoded = RESCUE_INTERFACE.decodeFunctionData('previewResultingHF', tx.data);
+        const decoded = RESCUE_INTERFACE.decodeFunctionData('previewResultingHf', tx.data);
         const amount = BigInt(decoded[2]);
-        return RESCUE_INTERFACE.encodeFunctionResult('previewResultingHF', [
+        return RESCUE_INTERFACE.encodeFunctionResult('previewResultingHf', [
           opts.previewHF(amount),
         ]);
       }
@@ -542,8 +542,8 @@ describe('evaluate integration with mock provider', () => {
 // ─── Morpho rescue integration tests ──────────────────────────────────────────
 
 const MORPHO_RESCUE_INTERFACE = new Interface([
-  'function rescue((address user,(address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams,uint256 amount,uint256 minResultingHF,uint256 deadline) params)',
-  'function previewResultingHF((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams, address user, uint256 amount) view returns (uint256)',
+  'function rescue((address user,(address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams,uint256 amount,uint256 minResultingHf,uint256 deadline) params)',
+  'function previewResultingHf((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams, address user, uint256 amount) view returns (uint256)',
 ]);
 
 const SAMPLE_MORPHO_MARKET_PARAMS: MorphoMarketParams = {
@@ -605,7 +605,7 @@ function createMorphoMockProvider(opts: {
 }) {
   const balanceOfSelector = ERC20_INTERFACE.getFunction('balanceOf')!.selector;
   const allowanceSelector = ERC20_INTERFACE.getFunction('allowance')!.selector;
-  const previewSelector = MORPHO_RESCUE_INTERFACE.getFunction('previewResultingHF')!.selector;
+  const previewSelector = MORPHO_RESCUE_INTERFACE.getFunction('previewResultingHf')!.selector;
 
   return {
     call: async (tx: { to: string; data: string }) => {
@@ -626,9 +626,9 @@ function createMorphoMockProvider(opts: {
         tx.to.toLowerCase() === MORPHO_RESCUE_CONTRACT.toLowerCase() &&
         selector === previewSelector
       ) {
-        const decoded = MORPHO_RESCUE_INTERFACE.decodeFunctionData('previewResultingHF', tx.data);
+        const decoded = MORPHO_RESCUE_INTERFACE.decodeFunctionData('previewResultingHf', tx.data);
         const amount = BigInt(decoded[2]);
-        return MORPHO_RESCUE_INTERFACE.encodeFunctionResult('previewResultingHF', [
+        return MORPHO_RESCUE_INTERFACE.encodeFunctionResult('previewResultingHf', [
           opts.previewHF(amount),
         ]);
       }

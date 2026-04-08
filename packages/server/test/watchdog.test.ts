@@ -106,9 +106,9 @@ test('dry-run logs planned atomic rescue and applies cooldown', async () => {
   ).findRequiredAmountRawGeneric = async () => 2_500_000n;
   (
     watchdog as unknown as {
-      previewResultingHF: () => Promise<bigint>;
+      previewResultingHf: () => Promise<bigint>;
     }
-  ).previewResultingHF = async (
+  ).previewResultingHf = async (
     _provider: unknown,
     _contract: string,
     _user: string,
@@ -143,9 +143,9 @@ test('live mode skips when private key is missing', async () => {
   ).findRequiredAmountRawGeneric = async () => 1_000_000n;
   (
     watchdog as unknown as {
-      previewResultingHF: () => Promise<bigint>;
+      previewResultingHf: () => Promise<bigint>;
     }
-  ).previewResultingHF = async () => 1_900_000_000_000_000_000n;
+  ).previewResultingHf = async () => 1_900_000_000_000_000_000n;
 
   await watchdog.evaluate(createLoan(), WALLET);
 
@@ -171,9 +171,9 @@ test('live mode executes rescue and records tx hash', async () => {
   ).findRequiredAmountRawGeneric = async () => 1_000_000n;
   (
     watchdog as unknown as {
-      previewResultingHF: () => Promise<bigint>;
+      previewResultingHf: () => Promise<bigint>;
     }
-  ).previewResultingHF = async () => 1_900_000_000_000_000_000n;
+  ).previewResultingHf = async () => 1_900_000_000_000_000_000n;
   (
     watchdog as unknown as {
       getGasPriceGwei: () => Promise<number>;
@@ -212,9 +212,9 @@ test('cooldown prevents immediate re-execution', async () => {
   ).findRequiredAmountRawGeneric = async () => 1_000_000n;
   (
     watchdog as unknown as {
-      previewResultingHF: () => Promise<bigint>;
+      previewResultingHf: () => Promise<bigint>;
     }
-  ).previewResultingHF = async () => 1_900_000_000_000_000_000n;
+  ).previewResultingHf = async () => 1_900_000_000_000_000_000n;
 
   await watchdog.evaluate(createLoan(), WALLET);
   await watchdog.evaluate(createLoan(), WALLET);
@@ -252,9 +252,9 @@ test('failed rescue tx logs error, sets cooldown, and notifies', async () => {
   ).findRequiredAmountRawGeneric = async () => 1_000_000n;
   (
     watchdog as unknown as {
-      previewResultingHF: () => Promise<bigint>;
+      previewResultingHf: () => Promise<bigint>;
     }
-  ).previewResultingHF = async () => 1_900_000_000_000_000_000n;
+  ).previewResultingHf = async () => 1_900_000_000_000_000_000n;
   (
     watchdog as unknown as {
       getGasPriceGwei: () => Promise<number>;

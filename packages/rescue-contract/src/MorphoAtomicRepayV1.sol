@@ -67,7 +67,7 @@ contract MorphoAtomicRepayV1 {
         address user;
         IMorpho.MarketParams marketParams;
         uint256 amount;
-        uint256 minResultingHF;
+        uint256 minResultingHf;
         uint256 deadline;
     }
 
@@ -90,19 +90,19 @@ contract MorphoAtomicRepayV1 {
         uint256 amount,
         uint256 hfBefore,
         uint256 hfAfter,
-        uint256 minRequiredHF
+        uint256 minRequiredHf
     );
 
     uint256 private constant WAD = 1e18;
     uint256 private constant ORACLE_PRICE_SCALE = 1e36;
 
     address public owner;
-    IMorpho public immutable morpho;
+    IMorpho public immutable MORPHO;
 
     mapping(bytes32 => bool) public supportedMarket;
 
     modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
+        _onlyOwner();
         _;
     }
 
@@ -112,7 +112,7 @@ contract MorphoAtomicRepayV1 {
         }
 
         owner = owner_;
-        morpho = IMorpho(morpho_);
+        MORPHO = IMorpho(morpho_);
 
         emit OwnershipTransferred(address(0), owner_);
     }
@@ -140,40 +140,40 @@ contract MorphoAtomicRepayV1 {
         bytes32 id = _marketId(params.marketParams);
         if (!supportedMarket[id]) revert MarketNotSupported();
 
-        uint256 hfBefore = _computeHF(params.marketParams, id, params.user, 0);
+        uint256 hfBefore = _computeHf(params.marketParams, id, params.user, 0);
 
         _transferIn(params.marketParams.loanToken, params.user, params.amount);
-        _forceApprove(params.marketParams.loanToken, address(morpho));
+        _forceApprove(params.marketParams.loanToken, address(MORPHO));
 
-        morpho.repay(params.marketParams, params.amount, 0, params.user, "");
+        MORPHO.repay(params.marketParams, params.amount, 0, params.user, "");
 
-        uint256 hfAfter = _computeHF(params.marketParams, id, params.user, 0);
-        if (hfAfter < params.minResultingHF) {
-            revert ResultingHFTooLow(hfAfter, params.minResultingHF);
+        uint256 hfAfter = _computeHf(params.marketParams, id, params.user, 0);
+        if (hfAfter < params.minResultingHf) {
+            revert ResultingHFTooLow(hfAfter, params.minResultingHf);
         }
 
         emit RescueExecuted(
-            params.user, id, params.amount, hfBefore, hfAfter, params.minResultingHF
+            params.user, id, params.amount, hfBefore, hfAfter, params.minResultingHf
         );
     }
 
-    function previewResultingHF(
+    function previewResultingHf(
         IMorpho.MarketParams calldata marketParams,
         address user,
         uint256 debtReduction
     ) external view returns (uint256) {
         bytes32 id = _marketId(marketParams);
         if (!supportedMarket[id]) revert MarketNotSupported();
-        return _computeHF(marketParams, id, user, debtReduction);
+        return _computeHf(marketParams, id, user, debtReduction);
     }
 
-    function _computeHF(
+    function _computeHf(
         IMorpho.MarketParams calldata marketParams,
         bytes32 marketId,
         address user,
         uint256 debtReduction
     ) internal view returns (uint256) {
-        (, uint128 borrowShares, uint128 collateral) = morpho.position(marketId, user);
+        (, uint128 borrowShares, uint128 collateral) = MORPHO.position(marketId, user);
 
         if (borrowShares == 0) return type(uint256).max;
 
@@ -196,7 +196,17 @@ contract MorphoAtomicRepayV1 {
         pure
         returns (bytes32)
     {
-        return keccak256(abi.encode(marketParams));
+        bytes32 marketId;
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            mstore(ptr, calldataload(marketParams))
+            mstore(add(ptr, 0x20), calldataload(add(marketParams, 0x20)))
+            mstore(add(ptr, 0x40), calldataload(add(marketParams, 0x40)))
+            mstore(add(ptr, 0x60), calldataload(add(marketParams, 0x60)))
+            mstore(add(ptr, 0x80), calldataload(add(marketParams, 0x80)))
+            marketId := keccak256(ptr, 0xa0)
+        }
+        return marketId;
     }
 
     function _marketState(bytes32 marketId)
@@ -211,7 +221,7 @@ contract MorphoAtomicRepayV1 {
             uint128 totalBorrowShares,
             uint128 lastUpdate,
             uint128 fee
-        ) = morpho.market(marketId);
+        ) = MORPHO.market(marketId);
 
         marketState = IMorpho.Market({
             totalSupplyAssets: totalSupplyAssets,
@@ -288,5 +298,9 @@ contract MorphoAtomicRepayV1 {
             bool ok = IERC20(asset).approve(spender, type(uint256).max);
             if (!ok) revert TokenApproveFailed();
         }
+    }
+
+    function _onlyOwner() internal view {
+        if (msg.sender != owner) revert NotOwner();
     }
 }
