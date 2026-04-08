@@ -88,7 +88,7 @@ function validateConfig(config: AlertConfig): string | null {
   const hasValidMorphoContract = /^0x[a-fA-F0-9]{40}$/.test(watchdog.morphoRescueContract);
 
   if (watchdog.rescueContract && !hasValidAaveContract) {
-    return 'Watchdog rescue contract must be a valid Ethereum address.';
+    return 'Aave Watchdog rescue contract must be a valid Ethereum address.';
   }
 
   if (watchdog.morphoRescueContract && !hasValidMorphoContract) {
@@ -629,7 +629,7 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                     </label>
 
                     <label className="grid gap-1.5 text-sm">
-                      <span className="text-muted-foreground">Rescue contract</span>
+                      <span className="text-muted-foreground">Aave rescue contract</span>
                       <Input
                         value={config.watchdog.rescueContract}
                         onChange={(e) => {

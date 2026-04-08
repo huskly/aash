@@ -198,6 +198,7 @@ The watchdog monitors loan health and can execute an atomic on-chain rescue when
 - Dry-run mode by default (notifies what _would_ happen, no on-chain transactions)
 - Live mode requires `WATCHDOG_PRIVATE_KEY` env var
 - Live mode requires allowance for the debt token (e.g. USDC) to be pulled by the rescue contract
+- For Morpho Blue deploys, generate exact `MORPHO_*` market env vars from a market URL or unique key with `yarn morpho:market-env <market-url-or-unique-key>` to avoid loan/collateral/oracle/IRM mismatches.
 - API: `GET /api/watchdog/status` for status and recent action log
 - Telegram: `/watchdog` command for status and recent actions
 - Config: watchdog section in `GET/PUT /api/config`

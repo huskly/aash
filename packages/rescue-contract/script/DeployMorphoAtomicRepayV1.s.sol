@@ -7,6 +7,7 @@ import {MorphoAtomicRepayV1, IMorpho} from "../src/MorphoAtomicRepayV1.sol";
 contract DeployMorphoAtomicRepayV1 is Script {
     function run() external {
         address owner = vm.envAddress("RESCUE_OWNER");
+        address initialOwner = vm.envOr("INITIAL_OWNER", owner);
         address morphoBlue = vm.envOr("MORPHO_BLUE", address(0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb));
         address loanToken = vm.envAddress("MORPHO_LOAN_TOKEN");
         address collateralToken = vm.envAddress("MORPHO_COLLATERAL_TOKEN");
@@ -16,7 +17,7 @@ contract DeployMorphoAtomicRepayV1 is Script {
 
         vm.startBroadcast();
 
-        MorphoAtomicRepayV1 rescue = new MorphoAtomicRepayV1(owner, morphoBlue);
+        MorphoAtomicRepayV1 rescue = new MorphoAtomicRepayV1(initialOwner, morphoBlue);
         rescue.setSupportedMarket(
             IMorpho.MarketParams({
                 loanToken: loanToken,
@@ -27,6 +28,9 @@ contract DeployMorphoAtomicRepayV1 is Script {
             }),
             true
         );
+        if (initialOwner != owner) {
+            rescue.setOwner(owner);
+        }
 
         vm.stopBroadcast();
     }

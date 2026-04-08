@@ -66,6 +66,7 @@ Backend server notes:
 - Morpho rescue uses the market-specific loan token (resolved from `LoanPosition.morphoMarketParams.loanToken`) to repay debt.
 - Morpho rescue preview/guard math uses accrued borrow interest and Morpho's virtual-share conversion instead of raw stale market totals.
 - Watchdog repay caps are configured via `maxRepayAmount` (denominated in the debt token, e.g. 500 USDC).
+- `yarn morpho:market-env <market-url-or-unique-key>` resolves a Morpho market through the public GraphQL API, prints exact `MORPHO_*` exports, and verifies the params hash back to the market `uniqueKey`.
 
 Frontend notes:
 

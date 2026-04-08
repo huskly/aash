@@ -104,6 +104,24 @@ export MORPHO_LLTV=<wad-value>           # e.g. 860000000000000000 for 86%
 export RPC_URL=https://rpc.mevblocker.io # or https://eth.llamarpc.com
 ```
 
+To avoid typos, generate these directly from a Morpho market URL or market unique key:
+
+```bash
+yarn morpho:market-env \
+  app.morpho.org/ethereum/market/0x64d65c9a2d91c36d56fbc42d69e979335320169b3df63bf92789e2c8883fcc64/cbbtc-usdc
+```
+
+Example output for Ethereum `cbBTC/USDC`:
+
+```bash
+export MORPHO_BLUE=0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb
+export MORPHO_LOAN_TOKEN=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48
+export MORPHO_COLLATERAL_TOKEN=0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf
+export MORPHO_ORACLE=0xA6D6950c9F177F1De7f7757FB33539e3Ec60182a
+export MORPHO_IRM=0x870aC11D48B15DB9a138Cf899d20F13F79Ba00BC
+export MORPHO_LLTV=860000000000000000
+```
+
 The `MORPHO_*` market params must match the monitored market exactly. A mismatch in
 loan token, collateral token, oracle, IRM, or LLTV will make the rescue contract reject the call.
 
@@ -124,7 +142,22 @@ forge script script/DeployMorphoAtomicRepayV1.s.sol:DeployMorphoAtomicRepayV1 \
   --rpc-url $RPC_URL \
   --sig "run()" \
   --broadcast \
-  --private-key $WATCHDOG_PRIVATE_KEY
+  --private-key $RESCUE_OWNER_PRIVATE_KEY
+```
+
+If `RESCUE_OWNER` is a hardware wallet, set a temporary deployer as `INITIAL_OWNER`. The script
+will deploy, call `setSupportedMarket(...)`, and then transfer ownership to `RESCUE_OWNER` in the
+same run:
+
+```bash
+export INITIAL_OWNER=0xYourHotWallet
+export RESCUE_OWNER=0xYourHardwareWallet
+
+forge script script/DeployMorphoAtomicRepayV1.s.sol:DeployMorphoAtomicRepayV1 \
+  --rpc-url $RPC_URL \
+  --sig "run()" \
+  --broadcast \
+  --private-key $DEPLOYER_PRIVATE_KEY
 ```
 
 Save the deployed contract address from the output.
@@ -135,11 +168,11 @@ Save the deployed contract address from the output.
 
 2. Set `watchdog.morphoRescueContract` in `PUT /api/config`:
 
-   ```bash
-   curl -X PUT https://<your-host>/api/config \
-     -H 'Content-Type: application/json' \
-     -d '{"watchdog": {"morphoRescueContract": "<deployed-address>"}}'
-   ```
+```bash
+  curl -X PUT https://<your-host>/api/config \
+    -H 'Content-Type: application/json' \
+    -d '{"watchdog": {"morphoRescueContract": "<deployed-address>"}}'
+```
 
 3. Approve the loan token (e.g. USDC) from the monitored wallet to the rescue contract:
 
@@ -161,12 +194,27 @@ Save the deployed contract address from the output.
    - `irm`
    - `lltv`
 
+5. Verify the contract source on Etherscan:
+
+   ```bash
+   forge verify-contract --chain mainnet \
+     --watch \
+     --guess-constructor-args \
+     --rpc-url $RPC_URL \
+     --etherscan-api-key $ETHERSCAN_API_KEY \
+     <deployed-address> \
+     src/MorphoAtomicRepayV1.sol:MorphoAtomicRepayV1
+   ```
+
+   If the contract was deployed with a temporary `INITIAL_OWNER`, `--guess-constructor-args`
+   should resolve the constructor from the creation bytecode correctly.
+
    The current implementation does not auto-discover or auto-register new Morpho markets on-chain. If the monitored
    wallet moves to a different market, deploy or reconfigure a rescue contract with that exact market tuple before
    enabling live mode.
 
-5. Keep watchdog in dry-run first.
-6. Switch to live mode after validation.
+6. Keep watchdog in dry-run first.
+7. Switch to live mode after validation.
 
 ## Runtime Preconditions (Morpho)
 
@@ -186,3 +234,7 @@ Save the deployed contract address from the output.
 - `MarketNotSupported`
 - `Gas price ... exceeds max ...`
 - `Signer address mismatch`
+
+```
+
+```

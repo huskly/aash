@@ -7,6 +7,7 @@
     "build": "tsc -b",
     "typecheck": "tsc -p tsconfig.typecheck.json",
     "test": "tsx --tsconfig tsconfig.test.json --test test/**/*.test.ts",
+    "morpho:market-env": "tsx src/scripts/morphoMarketEnv.ts",
     "dev": "node --import tsx --watch src/index.ts",
     "start": "node dist/index.js"
   },
