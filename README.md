@@ -31,6 +31,7 @@ A React + Vite dashboard that auto-loads Aave and Morpho Blue loan positions fro
   - `HF < 1.5`: mandatory deleveraging (red)
 - Auto-fetched collateral/borrow amounts and market metadata.
 - Price enrichment with CoinGecko, including symbol aliases for wrapped assets such as `cbBTC`.
+- Server logs normalize mixed-case reserve symbols before checking the CoinGecko price map, and loan collateral logs use each asset's resolved USD price so wrapped assets such as `cbBTC` and `wstETH` do not show false `$MISSING` entries.
 - Dashboard analytics:
   - Health Factor
   - Liquidation price (primary-collateral approximation)

@@ -16,6 +16,7 @@ export const AAVE_MARKETS: readonly AaveMarket[] = [
 export const COINGECKO_IDS_BY_SYMBOL: Record<string, string> = {
   ETH: 'ethereum',
   WETH: 'weth',
+  WSTETH: 'wrapped-steth',
   WBTC: 'wrapped-bitcoin',
   CBBTC: 'coinbase-wrapped-btc',
   USDC: 'usd-coin',

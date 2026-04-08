@@ -178,9 +178,10 @@ export class Monitor {
     const reserves = await fetchFromAaveSubgraph(address, this.graphApiKey);
     const symbols = Array.from(new Set(reserves.map((r) => r.reserve.symbol)));
     const prices = await fetchUsdPrices(symbols, this.coingeckoApiKey);
+    const normalizeSymbol = (symbol: string) => symbol.toUpperCase();
 
-    const pricedSymbols = symbols.filter((s) => prices.has(s));
-    const missingSymbols = symbols.filter((s) => !prices.has(s));
+    const pricedSymbols = symbols.filter((s) => prices.has(normalizeSymbol(s)));
+    const missingSymbols = symbols.filter((s) => !prices.has(normalizeSymbol(s)));
     logger.info(
       {
         wallet: this.shortAddr(address),
@@ -237,7 +238,7 @@ export class Monitor {
       activeStateKeys.add(stateKey);
 
       const collateralInfo = loan.supplied
-        .map((c) => `${c.symbol}=$${prices.get(c.symbol) ?? 'MISSING'}`)
+        .map((c) => `${c.symbol}=$${c.usdPrice > 0 ? c.usdPrice : 'MISSING'}`)
         .join(', ');
       logger.info(
         {

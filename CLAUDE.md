@@ -59,6 +59,7 @@ Backend server notes:
 - Morpho Blue positions are fetched from `https://api.morpho.org/graphql` via `fetchFromMorphoApi()` in `packages/aave-core/src/morpho.ts`.
 - Morpho positions use API-provided USD prices (no CoinGecko dependency).
 - Aave pricing uses the `COINGECKO_IDS_BY_SYMBOL` alias map in `packages/aave-core/src/constants.ts`; add wrapped/alias symbols there when Aave reserve symbols differ from CoinGecko slugs (for example `cbBTC` -> `coinbase-wrapped-btc`).
+- Monitor logs normalize reserve symbols before checking the CoinGecko price map, and per-loan collateral log lines use each asset's resolved `usdPrice` so mixed-case symbols such as `cbBTC` / `wstETH` do not appear as `$MISSING` when pricing succeeded.
 - Morpho markets use a single LLTV (Liquidation LTV) mapped to both `maxLTV` and `liqThreshold` on `AssetPosition`.
 - Morpho loan IDs use the market `uniqueKey`; market names follow the `morpho_<COLLATERAL>_<LOAN>` convention.
 - Interest rate / utilization curve charts are not available for Morpho markets (Aave-specific on-chain telemetry).

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Monitor } from '../src/monitor.js';
+import { logger } from '../src/logger.js';
 import type { AlertConfig } from '../src/storage.js';
 import type { TelegramClient } from '../src/telegram.js';
 
@@ -306,6 +307,169 @@ test('wallet reminder digest includes all non-safe loans when any loan is due', 
     assert.match(sentMessages[0]!.text, /Market: proto_mainnet_v3/);
     assert.match(sentMessages[0]!.text, /Market: morpho_WETH_USDC/);
   } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('monitor logs normalize mixed-case symbols and reuse per-loan usdPrice values', async () => {
+  const telegram = {
+    sendMessage: async () => true,
+  } as unknown as TelegramClient;
+
+  const monitor = new Monitor(telegram, createConfig, undefined, undefined, RPC_URL, undefined);
+  (monitor.watchdog as { evaluate: (loan: unknown, wallet: string) => Promise<void> }).evaluate =
+    async () => {};
+
+  const originalFetch = globalThis.fetch;
+  const originalInfo = logger.info.bind(logger);
+  const entries: Array<{ msg: string; payload: Record<string, unknown> }> = [];
+
+  logger.info = ((payload: unknown, msg?: unknown) => {
+    if (typeof msg === 'string' && payload && typeof payload === 'object') {
+      entries.push({ msg, payload: payload as Record<string, unknown> });
+    }
+    return logger;
+  }) as typeof logger.info;
+
+  try {
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url);
+
+      if (href.includes('coingecko.com/api/v3/simple/price')) {
+        return new Response(
+          JSON.stringify({
+            'coinbase-wrapped-btc': { usd: 71462 },
+            'wrapped-bitcoin': { usd: 71206 },
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (href === RPC_URL) {
+        const requests = JSON.parse(String(init?.body)) as Array<{ id: number }>;
+        return new Response(
+          JSON.stringify(requests.map((request) => ({ id: request.id, result: '0x0' }))),
+          { status: 200 },
+        );
+      }
+
+      if (href.includes('api.morpho.org/graphql')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              userByAddress: {
+                address: WALLET.toLowerCase(),
+                marketPositions: [
+                  {
+                    market: {
+                      uniqueKey: 'morpho-loan-wsteth',
+                      loanAsset: {
+                        symbol: 'USDC',
+                        address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+                        decimals: 6,
+                        priceUsd: 1,
+                      },
+                      collateralAsset: {
+                        symbol: 'wstETH',
+                        address: '0x7f39c581f595b53c5cb5bbd1b7ffac31c4d2d2e2',
+                        decimals: 18,
+                        priceUsd: 3012.5,
+                      },
+                      oracleAddress: '0x0000000000000000000000000000000000000001',
+                      irmAddress: '0x0000000000000000000000000000000000000002',
+                      lltv: '800000000000000000',
+                      state: {
+                        utilization: 0.5,
+                        borrowApy: 0,
+                        supplyApy: 0,
+                      },
+                    },
+                    borrowAssets: String(1000 * 1e6),
+                    borrowAssetsUsd: 1000,
+                    supplyAssets: '0',
+                    supplyAssetsUsd: 3012.5,
+                    collateral: String(1e18),
+                  },
+                ],
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (
+        href.includes('aave/protocol-v3') ||
+        href.includes('Cd2gEDVeqnjBn1hSeqFMitw8Q1iiyV9FYUZkLNRcL87g')
+      ) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              userReserves: [
+                {
+                  currentATokenBalance: String(1e8),
+                  currentTotalDebt: '0',
+                  usageAsCollateralEnabledOnUser: true,
+                  reserve: {
+                    symbol: 'cbBTC',
+                    decimals: 8,
+                    underlyingAsset: '0xcbbtc000000000000000000000000000000000000',
+                    baseLTVasCollateral: '7500',
+                    reserveLiquidationThreshold: '8000',
+                    liquidityRate: '0',
+                    variableBorrowRate: '0',
+                  },
+                },
+                {
+                  currentATokenBalance: '0',
+                  currentTotalDebt: String(500 * 1e8),
+                  usageAsCollateralEnabledOnUser: false,
+                  reserve: {
+                    symbol: 'WBTC',
+                    decimals: 8,
+                    underlyingAsset: '0xwbtc000000000000000000000000000000000000',
+                    baseLTVasCollateral: '0',
+                    reserveLiquidationThreshold: '0',
+                    liquidityRate: '0',
+                    variableBorrowRate: '0',
+                  },
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (href.includes('5vxMbXRhG1oQr55MWC5j6qg78waWujx1wjeuEWDA6j3')) {
+        return new Response(JSON.stringify({ data: { userReserves: [] } }), { status: 200 });
+      }
+
+      throw new Error(`Unhandled fetch URL: ${href}`);
+    }) as typeof fetch;
+
+    await (monitor as unknown as { poll: (options?: { notify: boolean }) => Promise<void> }).poll({
+      notify: false,
+    });
+
+    const pricesResolved = entries.find((entry) => entry.msg === 'Prices resolved');
+    assert.ok(pricesResolved);
+    assert.equal(pricesResolved.payload.resolved, 2);
+    assert.equal(pricesResolved.payload.total, 2);
+    assert.equal('missing' in pricesResolved.payload, false);
+
+    const loanStatusEntries = entries.filter((entry) => entry.msg === 'Loan status');
+    assert.equal(loanStatusEntries.length, 2);
+    assert.equal(
+      loanStatusEntries.some((entry) => entry.payload.collaterals === 'CBBTC=$71462'),
+      true,
+    );
+    assert.equal(
+      loanStatusEntries.some((entry) => entry.payload.collaterals === 'WSTETH=$3012.5'),
+      true,
+    );
+  } finally {
+    logger.info = originalInfo;
     globalThis.fetch = originalFetch;
   }
 });
