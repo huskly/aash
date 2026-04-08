@@ -264,4 +264,10 @@ contract AaveAtomicRepayV1Test is Test {
 
         assertEq(rescue.executor(), newExecutor);
     }
+
+    function test_non_owner_cannot_set_executor() external {
+        vm.prank(attacker);
+        vm.expectRevert(AaveAtomicRepayV1.NotOwner.selector);
+        rescue.setExecutor(attacker);
+    }
 }
