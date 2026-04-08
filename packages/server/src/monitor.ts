@@ -42,7 +42,7 @@ export type LoanAlertState = {
 export type MonitorStatus = {
   running: boolean;
   states: LoanAlertState[];
-  totalWalletCollateralUsd: number;
+  totalWalletBorrowedAssetUsd: number;
   lastPollAt: number | null;
   lastError: string | null;
   watchdogLog: WatchdogLogEntry[];
@@ -61,7 +61,7 @@ type ReminderDigestEntry = {
 export class Monitor {
   private states = new Map<string, LoanAlertState>();
   private timerId: ReturnType<typeof setInterval> | null = null;
-  private walletCollateralUsd = new Map<string, number>();
+  private walletBorrowedAssetUsd = new Map<string, number>();
   private lastPollAt: number | null = null;
   private lastError: string | null = null;
   private running = false;
@@ -116,7 +116,7 @@ export class Monitor {
     return {
       running: this.running,
       states: Array.from(this.states.values()),
-      totalWalletCollateralUsd: Array.from(this.walletCollateralUsd.values()).reduce(
+      totalWalletBorrowedAssetUsd: Array.from(this.walletBorrowedAssetUsd.values()).reduce(
         (sum, value) => sum + value,
         0,
       ),
@@ -145,9 +145,9 @@ export class Monitor {
         this.states.delete(stateKey);
       }
     }
-    for (const existingAddress of Array.from(this.walletCollateralUsd.keys())) {
+    for (const existingAddress of Array.from(this.walletBorrowedAssetUsd.keys())) {
       if (!enabledAddresses.has(existingAddress)) {
-        this.walletCollateralUsd.delete(existingAddress);
+        this.walletBorrowedAssetUsd.delete(existingAddress);
       }
     }
 
@@ -196,30 +196,33 @@ export class Monitor {
       return [];
     });
     const loans = [...buildLoanPositions(reserves, prices), ...morphoLoans];
-    const collateralAssets = Array.from(
+    const borrowedAssets = Array.from(
       new Map(
         loans
-          .flatMap((loan) => loan.supplied)
+          .flatMap((loan) => loan.borrowed)
           .map((asset) => [asset.address.toLowerCase(), asset] satisfies [string, AssetPosition]),
       ).values(),
     );
-    const walletCollateralBalances = await fetchTokenBalances(
+    const walletBorrowedAssetBalances = await fetchTokenBalances(
       address,
       this.rpcUrl,
-      collateralAssets.map((asset) => ({
+      borrowedAssets.map((asset) => ({
         key: asset.address.toLowerCase(),
         address: asset.address,
         decimals: asset.decimals,
       })),
     ).catch(() => {
-      logger.warn({ wallet: this.shortAddr(address) }, 'Collateral wallet balances unavailable');
+      logger.warn(
+        { wallet: this.shortAddr(address) },
+        'Borrowed-asset wallet balances unavailable',
+      );
       return new Map<string, number>();
     });
-    const walletCollateralUsd = collateralAssets.reduce((sum, asset) => {
-      const balance = walletCollateralBalances.get(asset.address.toLowerCase()) ?? 0;
+    const walletBorrowedAssetUsd = borrowedAssets.reduce((sum, asset) => {
+      const balance = walletBorrowedAssetBalances.get(asset.address.toLowerCase()) ?? 0;
       return sum + balance * asset.usdPrice;
     }, 0);
-    this.walletCollateralUsd.set(address.toLowerCase(), walletCollateralUsd);
+    this.walletBorrowedAssetUsd.set(address.toLowerCase(), walletBorrowedAssetUsd);
 
     const now = Date.now();
     const activeStateKeys = new Set<string>();

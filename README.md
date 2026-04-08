@@ -38,7 +38,7 @@ A React + Vite dashboard that auto-loads Aave and Morpho Blue loan positions fro
   - Carry / Net APY summary
   - Aave interest-rate model chart for the selected borrowed asset, including current utilization and the reserve kink
   - Borrow APR history chart for the selected borrowed asset, built from locally stored reserve telemetry samples
-  - Collateral margin of safety based on wallet balances that match supplied collateral assets
+  - Repay coverage based on wallet balances that match borrowed assets
   - Monitoring checklist + sensitivity cards
 
 ## Tech Stack
@@ -171,7 +171,7 @@ After each push to `main`, the workflow builds the app and publishes `dist` to G
 
 A backend monitoring service can poll your positions and send Telegram alerts when health factor zones change (e.g. Safe → Comfort → Watch → Alert → Action → Critical). When multiple loans for the same wallet trigger during a poll, they are grouped into one Telegram message instead of being sent separately. See **[docs/telegram-setup.md](docs/telegram-setup.md)** for full setup instructions.
 On server startup, Telegram command metadata is synced with `setMyCommands`, so the in-app slash-command menu matches the backend command handlers.
-The Telegram `/status` command includes a portfolio summary with average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and collateral margin of safety (USD and %).
+The Telegram `/status` command includes a portfolio summary with average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and repay coverage (USD and %).
 Each `/status` loan row uses the human-readable market name, so Morpho positions display labels like `morpho_cbBTC_USDC` instead of raw market IDs.
 The `/status` footer shows `Last updated` with both an absolute timestamp and relative time (e.g. `3 minutes ago`).
 Reminder alerts include a human-readable elapsed duration label (e.g. `2h 40m ago`).

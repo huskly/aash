@@ -34,7 +34,7 @@ test('formatStatusMessage shows human-readable market names instead of loan ids'
         stuckSince: null,
       },
     ],
-    totalWalletCollateralUsd: 28,
+    totalWalletBorrowedAssetUsd: 28,
     lastPollAt: null,
     lastError: null,
     watchdogLog: [],
@@ -46,4 +46,36 @@ test('formatStatusMessage shows human-readable market names instead of loan ids'
     message,
     /0x3a85e619751152991742810df6ec69ce473daef99e28a64ab2340d7b7ccfee49/,
   );
+});
+
+test('formatStatusMessage reports repay coverage from wallet balances matching borrowed assets', () => {
+  const status: MonitorStatus = {
+    running: true,
+    states: [
+      {
+        loanId: 'loan-1',
+        marketName: 'proto_mainnet_v3',
+        wallet: '0x1111111111111111111111111111111111117405',
+        healthFactor: 1.97,
+        adjustedHF: 1.97,
+        debtUsd: 1000,
+        collateralUsd: 2500,
+        maxBorrowByLtvUsd: 1500,
+        equityUsd: 1500,
+        netEarnUsd: 0,
+        currentZone: { name: 'comfort', label: 'COMFORT', emoji: '🟢', action: 'Monitor' },
+        lastNotifiedZone: null,
+        lastNotifiedAt: 0,
+        consecutiveChecks: 1,
+        stuckSince: null,
+      },
+    ],
+    totalWalletBorrowedAssetUsd: 250,
+    lastPollAt: null,
+    lastError: null,
+    watchdogLog: [],
+  };
+
+  const message = formatStatusMessage(status, [...zones]);
+  assert.match(message, /Repay coverage: <b>\$250<\/b> \(25\.00%\)/);
 });

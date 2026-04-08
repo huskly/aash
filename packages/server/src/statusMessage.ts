@@ -53,7 +53,7 @@ export function formatStatusMessage(
     { debt: 0, collateral: 0, maxBorrowByLtv: 0, equity: 0, netEarn: 0 },
   );
   const portfolioNetApy = totals.equity > 0 ? totals.netEarn / totals.equity : 0;
-  const collateralMargin = totals.debt > 0 ? status.totalWalletCollateralUsd / totals.debt : 0;
+  const repayCoverage = totals.debt > 0 ? status.totalWalletBorrowedAssetUsd / totals.debt : 0;
   const borrowPowerUsed = totals.maxBorrowByLtv > 0 ? totals.debt / totals.maxBorrowByLtv : 0;
   const finiteHealthFactors = visibleStates
     .map((state) => state.healthFactor)
@@ -75,7 +75,7 @@ export function formatStatusMessage(
     `Total collateral: <b>${fmtUsd(totals.collateral)}</b>`,
     `Total debt: <b>${fmtUsd(totals.debt)}</b>`,
     `Borrow power used: <b>${fmtPct(borrowPowerUsed)}</b>`,
-    `Collateral margin of safety: <b>${fmtUsd(status.totalWalletCollateralUsd)}</b> (${fmtPct(collateralMargin)})`,
+    `Repay coverage: <b>${fmtUsd(status.totalWalletBorrowedAssetUsd)}</b> (${fmtPct(repayCoverage)})`,
     '',
   );
 
