@@ -424,12 +424,13 @@ export default function App() {
   return (
     <ToastProvider value={{ pushToast }}>
       <div className="min-h-screen w-full bg-background px-4 py-6 text-foreground antialiased md:px-6 md:py-8">
-        <main className="mx-auto max-w-[1280px]">
+        <main className="mx-auto max-w-7xl">
           <header className="flex items-end justify-between gap-4 max-[980px]:flex-col max-[980px]:items-start">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">DeFi Loan Health Dashboard</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">aash</h1>
               <p className="mt-1.5 text-sm text-muted-foreground">
-                Auto-fetched from wallet address using public blockchain data and price APIs.
+                Track Aave and Morpho positions with realtime health metrics and customizable risk
+                parameters.
               </p>
             </div>
             <ServerSettings />
