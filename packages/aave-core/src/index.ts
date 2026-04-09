@@ -9,6 +9,8 @@ export type {
   InterestRateCurvePoint,
   LoanPosition,
   MorphoMarketParams,
+  MorphoVaultPosition,
+  PortfolioSummary,
   PollingConfig,
   RawUserReserve,
   RawUserReserveWithMarket,
@@ -38,6 +40,7 @@ export {
   clamp,
   computeAdjustedHF,
   computeLoanMetrics,
+  computePortfolioSummary,
   fromBps,
   fromRay,
   healthLabel,
@@ -55,7 +58,12 @@ export {
 
 export { buildLoanPositions, fetchFromAaveSubgraph } from './aave.js';
 
-export { fetchFromMorphoApi, type RawMorphoMarketPosition } from './morpho.js';
+export {
+  fetchFromMorphoApi,
+  fetchMorphoPositions,
+  type RawMorphoMarketPosition,
+  type RawMorphoVaultPosition,
+} from './morpho.js';
 
 export { fetchUsdPrices } from './prices.js';
 

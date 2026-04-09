@@ -2,6 +2,7 @@
 
 The Aave Loan Monitor includes a backend service that polls your loan positions and sends Telegram alerts when health factor zones change.
 If multiple loans for the same wallet trigger during the same poll, the monitor groups them into a single Telegram message to reduce notification spam.
+The dashboard can also display Morpho vault deposits, but Telegram monitoring/status remains focused on loan-risk positions only.
 
 ## Prerequisites
 

@@ -56,12 +56,14 @@ Backend server notes:
 - `zones[].maxHF` accepts JSON `null` on `PUT /api/config` and is normalized to `Infinity` (important because JSON serialization turns `Infinity` into `null`).
 - Legacy configs that omit one or more zones are hydrated back to the full default six-zone set by name, so runtime, `/api/config`, and the dashboard stay aligned.
 - Monitor runtime is driven by enabled wallets (not Telegram enablement), so watchdog polling can run without Telegram configured.
-- Morpho Blue positions are fetched from `https://api.morpho.org/graphql` via `fetchFromMorphoApi()` in `packages/aave-core/src/morpho.ts`.
+- Morpho positions are fetched from `https://api.morpho.org/graphql` in `packages/aave-core/src/morpho.ts`.
+- `fetchFromMorphoApi()` still returns only Morpho market loans for server/watchdog compatibility; `fetchMorphoPositions()` returns both `marketLoans` and `vaultPositions` for the dashboard.
 - Morpho positions use API-provided USD prices (no CoinGecko dependency).
 - Aave pricing uses the `COINGECKO_IDS_BY_SYMBOL` alias map in `packages/aave-core/src/constants.ts`; add wrapped/alias symbols there when Aave reserve symbols differ from CoinGecko slugs (for example `cbBTC` -> `coinbase-wrapped-btc`).
 - Monitor logs normalize reserve symbols before checking the CoinGecko price map, and per-loan collateral log lines use each asset's resolved `usdPrice` so mixed-case symbols such as `cbBTC` / `wstETH` do not appear as `$MISSING` when pricing succeeded.
 - Morpho markets use a single LLTV (Liquidation LTV) mapped to both `maxLTV` and `liqThreshold` on `AssetPosition`.
 - Morpho loan IDs use the market `uniqueKey`; market names follow the `morpho_<COLLATERAL>_<LOAN>` convention.
+- Morpho vault positions are modeled separately from `LoanPosition`; they are supply-only, render in their own dashboard table, and do not participate in HF / borrow-power math.
 - Interest rate / utilization curve charts are not available for Morpho markets (Aave-specific on-chain telemetry).
 - Watchdog rescue supports both Aave and Morpho Blue loans via separate rescue contracts (`rescueContract` for Aave, `morphoRescueContract` for Morpho).
 - Morpho rescue uses the market-specific loan token (resolved from `LoanPosition.morphoMarketParams.loanToken`) to repay debt.
@@ -77,7 +79,9 @@ Frontend notes:
 - `src/App.tsx` stores the last successfully loaded wallet under `localStorage['aave-monitor:last-wallet']`.
 - `src/App.tsx` also stores borrow APR history per market/asset in browser `localStorage` under the `aave-monitor:borrow-apr-history:*` prefix.
 - On page load, wallet resolution order is: query string (`wallet`, `address`, `walletAddress`) first, then saved local storage wallet.
-- The portfolio card labeled `Repay coverage` is based on wallet-held balances of tokens that also appear in the loan's borrowed asset set; it does not include unrelated wallet assets.
+- Portfolio summary math is centralized in `computePortfolioSummary()` in `packages/aave-core/src/metrics.ts`.
+- The dashboard's `Total Assets`, `Net worth`, `Supply APY`, `Net earnings`, and `Net APY` include Morpho vault deposits; `HF`, `Borrow power used`, and `Repay coverage` remain loan-only.
+- The portfolio card labeled `Repay coverage` is based on wallet-held balances of tokens that also appear in the loan's borrowed asset set; it does not include unrelated wallet assets or vault deposits.
 - The utilization curve and borrow APR history charts depend on the Express API server for on-chain reserve telemetry. Without `yarn dev:server` (or the unified Docker/server runtime), those charts fall back to an unavailable message.
 - Server settings saves surface toast feedback in the dashboard for both successful updates and failed save attempts.
 

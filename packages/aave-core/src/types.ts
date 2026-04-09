@@ -58,6 +58,21 @@ export type MorphoMarketParams = {
   lltv: string;
 };
 
+export type MorphoVaultPosition = {
+  id: string;
+  kind: 'morpho-vault';
+  protocol: 'morpho';
+  vaultAddress: string;
+  vaultName: string;
+  vaultSymbol: string;
+  asset: AssetPosition;
+  shares: number;
+  totalAssets: number;
+  totalAssetsUsd: number;
+  apy: number;
+  netApy: number;
+};
+
 export type LoanPosition = {
   id: string;
   marketName: string;
@@ -73,6 +88,7 @@ export type RawUserReserveWithMarket = RawUserReserve & { __marketName: string }
 export type FetchState = {
   wallet: string;
   loans: LoanPosition[];
+  vaults: MorphoVaultPosition[];
   lastUpdated: string;
 };
 
@@ -109,6 +125,29 @@ export type Computed = {
   rDeploy: number;
   primaryCollateralSymbol: string;
   assetLiquidations: AssetLiquidation[];
+};
+
+export type PortfolioSummary = {
+  loanCount: number;
+  vaultCount: number;
+  positionCount: number;
+  totalDebt: number;
+  totalRiskCollateral: number;
+  totalVaultAssets: number;
+  totalAssets: number;
+  totalNetWorth: number;
+  totalSupplyEarn: number;
+  totalBorrowCost: number;
+  totalDeployEarn: number;
+  totalNetEarn: number;
+  averageHealthFactor: number;
+  averageSupplyApy: number;
+  averageBorrowApy: number;
+  portfolioNetApy: number;
+  portfolioNetApyOnDebt: number;
+  borrowPowerUsed: number;
+  repayCoverage: number;
+  walletBorrowedAssetUsd: number;
 };
 
 export type AssetLiquidation = {

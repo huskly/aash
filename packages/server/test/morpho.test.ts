@@ -1,16 +1,34 @@
 import assert from 'node:assert/strict';
 import { afterEach, before, describe, it } from 'node:test';
-import { computeLoanMetrics, DEFAULT_R_DEPLOY, type LoanPosition } from '@aave-monitor/core';
-import { fetchFromMorphoApi, type RawMorphoMarketPosition } from '@aave-monitor/core';
+import {
+  computeLoanMetrics,
+  computePortfolioSummary,
+  DEFAULT_R_DEPLOY,
+  type LoanPosition,
+  type MorphoVaultPosition,
+} from '@aave-monitor/core';
+import {
+  fetchFromMorphoApi,
+  fetchMorphoPositions,
+  type RawMorphoMarketPosition,
+  type RawMorphoVaultV2Position,
+  type RawMorphoVaultPosition,
+} from '@aave-monitor/core';
 
 const WALLET = '0x1111111111111111111111111111111111111111';
 
-function makeMorphoApiResponse(positions: RawMorphoMarketPosition[]) {
+function makeMorphoApiResponse(
+  marketPositions: RawMorphoMarketPosition[],
+  vaultPositions: RawMorphoVaultPosition[] = [],
+  vaultV2Positions: RawMorphoVaultV2Position[] = [],
+) {
   return {
     data: {
       userByAddress: {
         address: WALLET,
-        marketPositions: positions,
+        marketPositions,
+        vaultV2Positions,
+        vaultPositions,
       },
     },
   };
@@ -47,6 +65,51 @@ function samplePosition(overrides?: Partial<RawMorphoMarketPosition>): RawMorpho
     supplyAssets: '0',
     supplyAssetsUsd: 0,
     collateral: '1000000000000000000', // 1 WETH (18 decimals)
+    ...overrides,
+  };
+}
+
+function sampleVaultV2Position(
+  overrides?: Partial<RawMorphoVaultV2Position>,
+): RawMorphoVaultV2Position {
+  return {
+    vault: {
+      address: '0xBEEF01735c132Ada46AA9aA4c54623cAA92A64CB',
+      name: 'Steakhouse Reservoir USDC',
+      symbol: 'steakUSDC',
+      asset: {
+        symbol: 'USDC',
+        address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+        decimals: 6,
+        priceUsd: 1,
+      },
+      avgApy: 0.038,
+      avgNetApy: 0.036,
+    },
+    assets: '2500000000',
+    assetsUsd: 2500,
+    shares: '2500000000',
+    ...overrides,
+  };
+}
+
+function sampleVaultPosition(overrides?: Partial<RawMorphoVaultPosition>): RawMorphoVaultPosition {
+  const v2 = sampleVaultV2Position();
+  return {
+    vault: {
+      ...v2.vault,
+      avgApy: undefined,
+      avgNetApy: undefined,
+      state: {
+        apy: 0.038,
+        netApy: 0.036,
+      },
+    },
+    state: {
+      assets: v2.assets,
+      assetsUsd: v2.assetsUsd,
+      shares: v2.shares,
+    },
     ...overrides,
   };
 }
@@ -199,6 +262,89 @@ describe('fetchFromMorphoApi', () => {
       message: 'Morpho API error: query too complex',
     });
   });
+
+  it('returns Morpho vault positions separately from market loans', async () => {
+    const mockResponse = makeMorphoApiResponse([samplePosition()], [], [sampleVaultV2Position()]);
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify(mockResponse), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+
+    const positions = await fetchMorphoPositions(WALLET);
+
+    assert.equal(positions.marketLoans.length, 1);
+    assert.equal(positions.vaultPositions.length, 1);
+    const vault = positions.vaultPositions[0];
+    assert.equal(vault.kind, 'morpho-vault');
+    assert.equal(vault.vaultName, 'Steakhouse Reservoir USDC');
+    assert.equal(vault.asset.symbol, 'USDC');
+    assert.equal(vault.totalAssets, 2500);
+    assert.equal(vault.totalAssetsUsd, 2500);
+    assert.equal(vault.netApy, 0.036);
+    assert.equal(vault.shares, 2500);
+  });
+
+  it('backfills vault USD price when asset price is null', async () => {
+    const vaultPosition = sampleVaultPosition({
+      vault: {
+        ...sampleVaultPosition().vault,
+        asset: {
+          ...sampleVaultPosition().vault.asset,
+          priceUsd: null,
+        },
+      },
+    });
+    const mockResponse = makeMorphoApiResponse([], [vaultPosition]);
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify(mockResponse), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+
+    const positions = await fetchMorphoPositions(WALLET);
+    assert.equal(positions.vaultPositions.length, 1);
+    assert.equal(positions.vaultPositions[0].asset.usdPrice, 1);
+    assert.equal(positions.vaultPositions[0].asset.usdValue, 2500);
+  });
+
+  it('filters out dust vault positions', async () => {
+    const mockResponse = makeMorphoApiResponse(
+      [],
+      [
+        sampleVaultPosition({
+          state: {
+            assets: '1',
+            assetsUsd: 0.000001,
+            shares: '1',
+          },
+        }),
+      ],
+    );
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify(mockResponse), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+
+    const positions = await fetchMorphoPositions(WALLET);
+    assert.equal(positions.vaultPositions.length, 0);
+  });
+
+  it('parses legacy vault position amounts from state', async () => {
+    const mockResponse = makeMorphoApiResponse([], [sampleVaultPosition()]);
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify(mockResponse), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+
+    const positions = await fetchMorphoPositions(WALLET);
+    assert.equal(positions.vaultPositions.length, 1);
+    assert.equal(positions.vaultPositions[0].vaultName, 'Steakhouse Reservoir USDC');
+    assert.equal(positions.vaultPositions[0].totalAssets, 2500);
+    assert.equal(positions.vaultPositions[0].netApy, 0.036);
+  });
 });
 
 describe('Morpho LoanPosition works with computeLoanMetrics', () => {
@@ -247,5 +393,133 @@ describe('Morpho LoanPosition works with computeLoanMetrics', () => {
     // LTV = 500 / 3000 = 0.1667
     assert.ok(Math.abs(metrics.ltv - 500 / 3000) < 0.001);
     assert.equal(metrics.primaryCollateralSymbol, 'WETH');
+  });
+});
+
+describe('computePortfolioSummary with Morpho vaults', () => {
+  it('includes vault deposits in asset and carry totals but not loan risk metrics', () => {
+    const loan: LoanPosition = {
+      id: '0xabc123',
+      marketName: 'morpho_WETH_USDC',
+      borrowed: [
+        {
+          symbol: 'USDC',
+          address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          decimals: 6,
+          amount: 500,
+          usdPrice: 1,
+          usdValue: 500,
+          collateralEnabled: false,
+          maxLTV: 0,
+          liqThreshold: 0,
+          supplyRate: 0,
+          borrowRate: 0.045,
+        },
+      ],
+      supplied: [
+        {
+          symbol: 'WETH',
+          address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+          decimals: 18,
+          amount: 1,
+          usdPrice: 3000,
+          usdValue: 3000,
+          collateralEnabled: true,
+          maxLTV: 0.86,
+          liqThreshold: 0.86,
+          supplyRate: 0.032,
+          borrowRate: 0,
+        },
+      ],
+      totalSuppliedUsd: 3000,
+      totalBorrowedUsd: 500,
+    };
+
+    const vault: MorphoVaultPosition = {
+      id: '0xbeef01735c132ada46aa9aa4c54623caa92a64cb',
+      kind: 'morpho-vault',
+      protocol: 'morpho',
+      vaultAddress: '0xbeef01735c132ada46aa9aa4c54623caa92a64cb',
+      vaultName: 'Steakhouse Reservoir USDC',
+      vaultSymbol: 'steakUSDC',
+      asset: {
+        symbol: 'USDC',
+        address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        decimals: 6,
+        amount: 2500,
+        usdPrice: 1,
+        usdValue: 2500,
+        collateralEnabled: false,
+        maxLTV: 0,
+        liqThreshold: 0,
+        supplyRate: 0.036,
+        borrowRate: 0,
+      },
+      shares: 2500,
+      totalAssets: 2500,
+      totalAssetsUsd: 2500,
+      apy: 0.038,
+      netApy: 0.036,
+    };
+
+    const summary = computePortfolioSummary(
+      [loan],
+      [vault],
+      new Map([['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', 250]]),
+      DEFAULT_R_DEPLOY,
+    );
+
+    assert.ok(summary);
+    assert.equal(summary.loanCount, 1);
+    assert.equal(summary.vaultCount, 1);
+    assert.equal(summary.totalRiskCollateral, 3000);
+    assert.equal(summary.totalVaultAssets, 2500);
+    assert.equal(summary.totalAssets, 5500);
+    assert.equal(summary.totalDebt, 500);
+    assert.equal(summary.totalNetWorth, 5000);
+    assert.ok(Math.abs(summary.averageHealthFactor - 5.16) < 0.01);
+    assert.ok(Math.abs(summary.borrowPowerUsed - 500 / (3000 * 0.86)) < 0.0001);
+    assert.equal(summary.repayCoverage, 0.5);
+    assert.ok(Math.abs(summary.totalSupplyEarn - (3000 * 0.032 + 2500 * 0.036)) < 0.0001);
+    assert.ok(Math.abs(summary.totalBorrowCost - 22.5) < 0.0001);
+  });
+
+  it('supports vault-only portfolios', () => {
+    const vault: MorphoVaultPosition = {
+      id: '0xbeef01735c132ada46aa9aa4c54623caa92a64cb',
+      kind: 'morpho-vault',
+      protocol: 'morpho',
+      vaultAddress: '0xbeef01735c132ada46aa9aa4c54623caa92a64cb',
+      vaultName: 'Steakhouse Reservoir USDC',
+      vaultSymbol: 'steakUSDC',
+      asset: {
+        symbol: 'USDC',
+        address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+        decimals: 6,
+        amount: 2500,
+        usdPrice: 1,
+        usdValue: 2500,
+        collateralEnabled: false,
+        maxLTV: 0,
+        liqThreshold: 0,
+        supplyRate: 0.036,
+        borrowRate: 0,
+      },
+      shares: 2500,
+      totalAssets: 2500,
+      totalAssetsUsd: 2500,
+      apy: 0.038,
+      netApy: 0.036,
+    };
+
+    const summary = computePortfolioSummary([], [vault], new Map(), DEFAULT_R_DEPLOY);
+
+    assert.ok(summary);
+    assert.equal(summary.totalAssets, 2500);
+    assert.equal(summary.totalNetWorth, 2500);
+    assert.equal(summary.totalDebt, 0);
+    assert.equal(summary.totalVaultAssets, 2500);
+    assert.equal(summary.averageHealthFactor, Infinity);
+    assert.equal(summary.borrowPowerUsed, 0);
   });
 });

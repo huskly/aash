@@ -26,16 +26,17 @@ import {
   type BadgeTone,
   type AssetPosition,
   type FetchState,
+  type MorphoVaultPosition,
   type ReserveTelemetry,
-  type LoanPosition,
   ETHEREUM_ADDRESS_REGEX,
   DEFAULT_R_DEPLOY,
   clamp,
   computeLoanMetrics,
+  computePortfolioSummary,
   healthLabel,
   parseDeployRate,
   fetchFromAaveSubgraph,
-  fetchFromMorphoApi,
+  fetchMorphoPositions,
   fetchUsdPrices,
   buildLoanPositions,
 } from '@aave-monitor/core';
@@ -224,57 +225,13 @@ export default function App() {
   const computed = useMemo(() => computeLoanMetrics(selectedLoan, R_DEPLOY), [selectedLoan]);
   const status = healthLabel(computed.healthFactor);
   const portfolio = useMemo(() => {
-    if (!result || result.loans.length === 0) return null;
-
-    const metrics = result.loans.map((loan: LoanPosition) => computeLoanMetrics(loan, R_DEPLOY));
-    const totalDebt = metrics.reduce((sum, item) => sum + item.debt, 0);
-    const totalCollateral = metrics.reduce((sum, item) => sum + item.collateralUSD, 0);
-    const totalNetWorth = metrics.reduce((sum, item) => sum + item.equity, 0);
-    const totalSupplyEarn = metrics.reduce((sum, item) => sum + item.supplyEarnUSD, 0);
-    const totalBorrowCost = metrics.reduce((sum, item) => sum + item.borrowCostUSD, 0);
-    const totalDeployEarn = metrics.reduce((sum, item) => sum + item.deployEarnUSD, 0);
-    const totalNetEarn = metrics.reduce((sum, item) => sum + item.netEarnUSD, 0);
-    const totalMaxBorrow = metrics.reduce((sum, item) => sum + item.maxBorrowByLTV, 0);
-
-    const finiteHealthFactors = metrics
-      .map((item) => item.healthFactor)
-      .filter((item) => Number.isFinite(item));
-    const averageHealthFactor =
-      finiteHealthFactors.length > 0
-        ? finiteHealthFactors.reduce((sum, item) => sum + item, 0) / finiteHealthFactors.length
-        : Infinity;
-
-    const borrowedAssetPricesByAddress = new Map<string, number>();
-    for (const loan of result.loans) {
-      for (const asset of loan.borrowed) {
-        borrowedAssetPricesByAddress.set(asset.address.toLowerCase(), asset.usdPrice);
-      }
-    }
-
-    let walletBorrowedAssetUsd = 0;
-    for (const [address, balance] of walletBorrowedAssetBalances.entries()) {
-      walletBorrowedAssetUsd += balance * (borrowedAssetPricesByAddress.get(address) ?? 0);
-    }
-    const repayCoverage = totalDebt > 0 ? walletBorrowedAssetUsd / totalDebt : 0;
-
-    return {
-      loanCount: metrics.length,
-      totalDebt,
-      totalCollateral,
-      totalNetWorth,
-      totalSupplyEarn,
-      totalBorrowCost,
-      totalDeployEarn,
-      totalNetEarn,
-      averageHealthFactor,
-      averageSupplyApy: totalCollateral > 0 ? totalSupplyEarn / totalCollateral : 0,
-      averageBorrowApy: totalDebt > 0 ? totalBorrowCost / totalDebt : 0,
-      portfolioNetApy: totalNetWorth > 0 ? totalNetEarn / totalNetWorth : 0,
-      portfolioNetApyOnDebt: totalDebt > 0 ? totalNetEarn / totalDebt : 0,
-      borrowPowerUsed: totalMaxBorrow > 0 ? totalDebt / totalMaxBorrow : 0,
-      repayCoverage,
-      walletBorrowedAssetUsd,
-    };
+    if (!result) return null;
+    return computePortfolioSummary(
+      result.loans,
+      result.vaults,
+      walletBorrowedAssetBalances,
+      R_DEPLOY,
+    );
   }, [result, walletBorrowedAssetBalances]);
   const loanRows = useMemo(() => {
     if (!result) return [];
@@ -283,19 +240,24 @@ export default function App() {
       metrics: computeLoanMetrics(loan, R_DEPLOY),
     }));
   }, [result]);
+  const vaultRows = useMemo(() => result?.vaults ?? [], [result]);
+  const hasAnyPositions = Boolean(result && (result.loans.length > 0 || result.vaults.length > 0));
 
   const fetchLoans = useCallback(async (normalizedWallet: string) => {
     setError('');
     setIsLoading(true);
 
     try {
-      const [reserves, morphoLoans] = await Promise.all([
+      const [reserves, morpho] = await Promise.all([
         fetchFromAaveSubgraph(normalizedWallet, GRAPH_API_KEY),
-        fetchFromMorphoApi(normalizedWallet).catch(() => []),
+        fetchMorphoPositions(normalizedWallet).catch(() => ({
+          marketLoans: [],
+          vaultPositions: [],
+        })),
       ]);
       const reserveSymbols = Array.from(new Set(reserves.map((entry) => entry.reserve.symbol)));
       const prices = await fetchUsdPrices(reserveSymbols, COINGECKO_API_KEY);
-      const loans = [...buildLoanPositions(reserves, prices), ...morphoLoans];
+      const loans = [...buildLoanPositions(reserves, prices), ...morpho.marketLoans];
       const borrowedAssets = Array.from(
         new Map(
           loans
@@ -314,6 +276,7 @@ export default function App() {
       setResult({
         wallet: normalizedWallet,
         loans,
+        vaults: morpho.vaultPositions,
         lastUpdated: new Date(updatedAt).toISOString(),
       });
       try {
@@ -461,12 +424,12 @@ export default function App() {
   return (
     <ToastProvider value={{ pushToast }}>
       <div className="min-h-screen w-full bg-background px-4 py-6 text-foreground antialiased md:px-6 md:py-8">
-        <main className="mx-auto max-w-[1280px]">
+        <main className="mx-auto max-w-7xl">
           <header className="flex items-end justify-between gap-4 max-[980px]:flex-col max-[980px]:items-start">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">DeFi Loan Health Dashboard</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">aash</h1>
               <p className="mt-1.5 text-sm text-muted-foreground">
-                Auto-fetched from wallet address using public blockchain data and price APIs.
+                Using public blockchain data and price APIs.
               </p>
             </div>
             <ServerSettings />
@@ -505,7 +468,7 @@ export default function App() {
                   ) : (
                     <Wallet size={16} />
                   )}
-                  {isLoading ? 'Fetching loans...' : 'Fetch loans'}
+                  {isLoading ? 'Fetching positions...' : 'Fetch positions'}
                 </Button>
                 <Button
                   className="max-[980px]:w-full max-[980px]:max-w-full"
@@ -535,7 +498,11 @@ export default function App() {
                   <p className="text-xs text-muted-foreground">Wallet</p>
                   <p className="break-all font-mono text-sm">{result.wallet}</p>
                   <p className="text-xs text-muted-foreground">
-                    Found {result.loans.length} active loan position(s)
+                    Found {result.loans.length + result.vaults.length} active position(s)
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {result.loans.length} loan position(s) · {result.vaults.length} vault
+                    position(s)
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Last updated: {fmtTimeAgo(result.lastUpdated, now)}
@@ -543,7 +510,7 @@ export default function App() {
                 </CardContent>
               </Card>
 
-              {result.loans.length > 0 ? (
+              {hasAnyPositions ? (
                 <>
                   {portfolio ? (
                     <Card className="mt-4">
@@ -580,14 +547,26 @@ export default function App() {
                               Net APY {fmtPct(portfolio.portfolioNetApy)}
                             </Badge>
                             <div className="text-right">
-                              <p className="text-xs text-muted-foreground">Total Collateral</p>
+                              <p className="text-xs text-muted-foreground">Total Assets</p>
                               <p className="text-xl font-semibold tabular-nums">
-                                {fmtUSD(portfolio.totalCollateral, 0)}
+                                {fmtUSD(portfolio.totalAssets, 0)}
                               </p>
                             </div>
                           </div>
                         </div>
                         <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                          <span>
+                            Risk collateral{' '}
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {fmtUSD(portfolio.totalRiskCollateral, 0)}
+                            </span>
+                          </span>
+                          <span>
+                            Vault deposits{' '}
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {fmtUSD(portfolio.totalVaultAssets, 0)}
+                            </span>
+                          </span>
                           <span>
                             Net worth{' '}
                             <span className="font-semibold tabular-nums text-foreground">
@@ -650,76 +629,109 @@ export default function App() {
                     </Card>
                   ) : null}
 
-                  <Card className="mt-4">
-                    <CardHeader>
-                      <CardTitle>Loan Positions</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                              <th className="px-4 py-2.5 font-medium">Market</th>
-                              <th className="px-4 py-2.5 font-medium">Collateral</th>
-                              <th className="px-4 py-2.5 font-medium">Borrowed</th>
-                              <th className="px-4 py-2.5 font-medium text-right">Debt</th>
-                              <th className="px-4 py-2.5 font-medium text-right">HF</th>
-                              <th className="px-4 py-2.5 font-medium text-right">Rate</th>
-                              <th className="px-4 py-2.5 font-medium text-right">LTV</th>
-                              <th className="px-4 py-2.5 font-medium text-right">Liq. Price</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {loanRows.map(({ loan, metrics }) => (
-                              <tr
-                                key={loan.id}
-                                onClick={() => setSelectedLoanId(loan.id)}
-                                className={cn(
-                                  'cursor-pointer border-b border-border transition-colors hover:bg-accent/50',
-                                  loan.id === selectedLoanId && 'bg-accent',
-                                )}
-                              >
-                                <td className="px-4 py-3 font-medium">{loan.marketName}</td>
-                                <td className="px-4 py-3">
-                                  {loan.supplied.map((a) => a.symbol).join(', ')}
-                                </td>
-                                <td className="px-4 py-3">
-                                  {loan.borrowed.map((a) => a.symbol).join(' + ')}
-                                </td>
-                                <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                                  {fmtUSD(metrics.debt, 0)}
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                  <Badge
-                                    variant={toBadgeVariant(healthLabel(metrics.healthFactor).tone)}
-                                  >
-                                    {Number.isFinite(metrics.healthFactor)
-                                      ? metrics.healthFactor.toFixed(2)
-                                      : '∞'}
-                                  </Badge>
-                                </td>
-                                <td className="px-4 py-3 text-right tabular-nums">
-                                  {fmtPct(metrics.rBorrow)}
-                                </td>
-                                <td className="px-4 py-3 text-right tabular-nums">
-                                  {fmtPct(metrics.ltv)}
-                                </td>
-                                <td className="px-4 py-3 text-right tabular-nums">
-                                  {metrics.assetLiquidations.length === 0
-                                    ? '—'
-                                    : metrics.assetLiquidations.length === 1
-                                      ? fmtUSD(metrics.assetLiquidations[0]!.liqPrice, 2)
-                                      : metrics.assetLiquidations
-                                          .map((a) => `${a.symbol}: ${fmtUSD(a.liqPrice, 0)}`)
-                                          .join(' | ')}
-                                </td>
+                  {result.loans.length > 0 ? (
+                    <Card className="mt-4">
+                      <CardHeader>
+                        <CardTitle>Loan Positions</CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-0">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                                <th className="px-4 py-2.5 font-medium">Market</th>
+                                <th className="px-4 py-2.5 font-medium">Collateral</th>
+                                <th className="px-4 py-2.5 font-medium">Borrowed</th>
+                                <th className="px-4 py-2.5 font-medium text-right">Debt</th>
+                                <th className="px-4 py-2.5 font-medium text-right">HF</th>
+                                <th className="px-4 py-2.5 font-medium text-right">Rate</th>
+                                <th className="px-4 py-2.5 font-medium text-right">LTV</th>
+                                <th className="px-4 py-2.5 font-medium text-right">Liq. Price</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </CardContent>
-                  </Card>
+                            </thead>
+                            <tbody>
+                              {loanRows.map(({ loan, metrics }) => (
+                                <tr
+                                  key={loan.id}
+                                  onClick={() => setSelectedLoanId(loan.id)}
+                                  className={cn(
+                                    'cursor-pointer border-b border-border transition-colors hover:bg-accent/50',
+                                    loan.id === selectedLoanId && 'bg-accent',
+                                  )}
+                                >
+                                  <td className="px-4 py-3 font-medium">{loan.marketName}</td>
+                                  <td className="px-4 py-3">
+                                    {loan.supplied.map((a) => a.symbol).join(', ')}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {loan.borrowed.map((a) => a.symbol).join(' + ')}
+                                  </td>
+                                  <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                                    {fmtUSD(metrics.debt, 0)}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <Badge
+                                      variant={toBadgeVariant(
+                                        healthLabel(metrics.healthFactor).tone,
+                                      )}
+                                    >
+                                      {Number.isFinite(metrics.healthFactor)
+                                        ? metrics.healthFactor.toFixed(2)
+                                        : '∞'}
+                                    </Badge>
+                                  </td>
+                                  <td className="px-4 py-3 text-right tabular-nums">
+                                    {fmtPct(metrics.rBorrow)}
+                                  </td>
+                                  <td className="px-4 py-3 text-right tabular-nums">
+                                    {fmtPct(metrics.ltv)}
+                                  </td>
+                                  <td className="px-4 py-3 text-right tabular-nums">
+                                    {metrics.assetLiquidations.length === 0
+                                      ? '—'
+                                      : metrics.assetLiquidations.length === 1
+                                        ? fmtUSD(metrics.assetLiquidations[0]!.liqPrice, 2)
+                                        : metrics.assetLiquidations
+                                            .map((a) => `${a.symbol}: ${fmtUSD(a.liqPrice, 0)}`)
+                                            .join(' | ')}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
+                  {vaultRows.length > 0 ? (
+                    <Card className="mt-4">
+                      <CardHeader>
+                        <CardTitle>Morpho Vault Positions</CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-0">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                                <th className="px-4 py-2.5 font-medium">Vault</th>
+                                <th className="px-4 py-2.5 font-medium">Asset</th>
+                                <th className="px-4 py-2.5 font-medium text-right">Deposited</th>
+                                <th className="px-4 py-2.5 font-medium text-right">Value</th>
+                                <th className="px-4 py-2.5 font-medium text-right">Net APY</th>
+                                <th className="px-4 py-2.5 font-medium text-right">Shares</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {vaultRows.map((vault) => (
+                                <VaultRow key={vault.id} vault={vault} />
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ) : null}
 
                   {selectedLoan && (
                     <p className="mt-4 text-sm text-muted-foreground">
@@ -731,7 +743,7 @@ export default function App() {
                     </p>
                   )}
 
-                  <section className="mt-2 grid gap-4 [grid-template-columns:minmax(320px,0.95fr)_minmax(0,2fr)] max-[980px]:grid-cols-1">
+                  <section className="mt-2 grid gap-4 grid-cols-[minmax(320px,0.95fr)_minmax(0,2fr)] max-[980px]:grid-cols-1">
                     <Card>
                       <CardHeader>
                         <CardTitle className="inline-flex items-center gap-2">
@@ -1059,7 +1071,8 @@ export default function App() {
                 <Card className="mt-4">
                   <CardContent className="pt-6">
                     <p className="text-muted-foreground">
-                      No borrowed positions were found for this wallet on Aave V3 Ethereum.
+                      No active Aave, Morpho market, or Morpho vault positions were found for this
+                      wallet.
                     </p>
                   </CardContent>
                 </Card>
@@ -1099,6 +1112,26 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-muted-foreground">{label}</span>
       <span className="font-semibold tabular-nums">{value}</span>
     </div>
+  );
+}
+
+function VaultRow({ vault }: { vault: MorphoVaultPosition }) {
+  return (
+    <tr className="border-b border-border">
+      <td className="px-4 py-3 font-medium">
+        <div className="flex flex-col gap-0.5">
+          <span>{vault.vaultName}</span>
+          <span className="text-xs text-muted-foreground">{vault.vaultSymbol}</span>
+        </div>
+      </td>
+      <td className="px-4 py-3">{vault.asset.symbol}</td>
+      <td className="px-4 py-3 text-right tabular-nums">{fmtAmount(vault.totalAssets)}</td>
+      <td className="px-4 py-3 text-right font-semibold tabular-nums">
+        {fmtUSD(vault.totalAssetsUsd, 0)}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums">{fmtPct(vault.netApy)}</td>
+      <td className="px-4 py-3 text-right tabular-nums">{fmtAmount(vault.shares)}</td>
+    </tr>
   );
 }
 

@@ -1,12 +1,12 @@
-# aash - Aave & Morpho Loan Monitor
+# aash - Aave & Morpho Position Monitor
 
-A React + Vite dashboard that auto-loads Aave and Morpho Blue loan positions from a wallet address and computes risk/health metrics.
+A React + Vite dashboard that auto-loads Aave loans, Morpho Blue market positions, and Morpho vault deposits from a wallet address and computes portfolio and risk metrics.
 
 ## Goals
 
 - Use a single wallet address as input.
 - Fetch live position data from public blockchain indexers.
-- Show all detected loans across supported Aave markets.
+- Show all detected Aave loans and Morpho positions for a wallet.
 - Compute practical monitoring metrics (HF, LTV, liquidation, leverage, carry/net APY).
 - Notify of meaningful changes to health factors via Telegram bot, grouped into one message per wallet when multiple loans alert in the same poll
 - Partial auto-repay bot maintains loan within a target HF range
@@ -21,8 +21,11 @@ A React + Vite dashboard that auto-loads Aave and Morpho Blue loan positions fro
 - Multi-market support:
   - Aave V3: `proto_mainnet_v3`, `proto_lido_v3`
   - Morpho Blue: isolated markets (fetched from Morpho GraphQL API)
-- Support for multiple loans/borrowed assets.
-- Top-level portfolio metrics across all active loans (average health factor, weighted APYs, total debt/collateral/net worth).
+  - Morpho Vaults: vault deposits such as `Steakhouse Reservoir USDC`
+- Support for multiple loans/borrowed assets plus supply-only vault deposits.
+- Top-level portfolio metrics roll up all detected positions:
+  - Loan-risk metrics stay loan-only (average health factor, borrow power used, repay coverage)
+  - Asset/carry metrics include Morpho vault deposits (total assets, net worth, supply APY, net earnings, net APY)
 - Fully paid-off / dust positions with effectively zero USD exposure are filtered out.
 - Portfolio average HF color bands:
   - `HF > 2.2`: normal operation (green)
@@ -36,6 +39,7 @@ A React + Vite dashboard that auto-loads Aave and Morpho Blue loan positions fro
   - Liquidation price (primary-collateral approximation)
   - LTV, leverage, borrow headroom
   - Carry / Net APY summary
+  - Separate Morpho vault table with deposited asset amount, USD value, net APY, and shares
   - Aave interest-rate model chart for the selected borrowed asset, including current utilization and the reserve kink
   - Borrow APR history chart for the selected borrowed asset, built from locally stored reserve telemetry samples
   - Repay coverage based on wallet balances that match borrowed assets
@@ -171,7 +175,7 @@ After each push to `main`, the workflow builds the app and publishes `dist` to G
 
 A backend monitoring service can poll your positions and send Telegram alerts when health factor zones change (e.g. Safe → Comfort → Watch → Alert → Action → Critical). When multiple loans for the same wallet trigger during a poll, they are grouped into one Telegram message instead of being sent separately. See **[docs/telegram-setup.md](docs/telegram-setup.md)** for full setup instructions.
 On server startup, Telegram command metadata is synced with `setMyCommands`, so the in-app slash-command menu matches the backend command handlers.
-The Telegram `/status` command includes a portfolio summary with average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and repay coverage (USD and %).
+The Telegram `/status` command includes a loan-focused portfolio summary with average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and repay coverage (USD and %).
 Each `/status` loan row uses the human-readable market name, so Morpho positions display labels like `morpho_cbBTC_USDC` instead of raw market IDs.
 The `/status` footer shows `Last updated` with both an absolute timestamp and relative time (e.g. `3 minutes ago`).
 Reminder alerts include a human-readable elapsed duration label (e.g. `2h 40m ago`).
@@ -208,10 +212,10 @@ The watchdog monitors loan health and can execute an atomic on-chain rescue when
 
 1. User enters an Ethereum wallet address, provides it via query string (`wallet`, `address`, or `walletAddress`), or reloads with the last saved wallet from browser storage.
 2. App queries Aave subgraph data for supported markets.
-3. Reserves are grouped into loan positions per market.
-4. Token prices are fetched from CoinGecko.
-5. Portfolio-level aggregate metrics are computed across all active loans.
-6. Detailed metrics are computed and rendered per selected loan tab.
+3. Aave reserves are grouped into loan positions per market; Morpho market loans and Morpho vault deposits are fetched from Morpho's GraphQL API.
+4. Token prices are fetched from CoinGecko for Aave assets, while Morpho positions use API-provided pricing or USD back-calculation.
+5. Portfolio-level aggregate metrics are computed across all active positions, with loan-risk metrics kept separate from supply-only vault assets.
+6. Detailed risk metrics are computed and rendered for the selected loan, while Morpho vaults render in a separate table.
 7. When the API server is available, the dashboard also reads on-chain reserve telemetry for the selected borrowed asset and stores periodic borrow APR samples in browser `localStorage` to build the history chart over time.
 
 ## Limitations

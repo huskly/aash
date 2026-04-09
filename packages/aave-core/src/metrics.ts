@@ -5,6 +5,8 @@ import type {
   BadgeTone,
   Computed,
   LoanPosition,
+  MorphoVaultPosition,
+  PortfolioSummary,
 } from './types.js';
 
 export function n(value: string | number): number {
@@ -276,5 +278,71 @@ export function computeLoanMetrics(loan: LoanPosition | null, rDeploy: number): 
     rDeploy,
     primaryCollateralSymbol,
     assetLiquidations,
+  };
+}
+
+export function computePortfolioSummary(
+  loans: LoanPosition[],
+  vaults: MorphoVaultPosition[],
+  walletBorrowedAssetBalances: Map<string, number>,
+  rDeploy: number,
+): PortfolioSummary | null {
+  if (loans.length === 0 && vaults.length === 0) return null;
+
+  const metrics = loans.map((loan) => computeLoanMetrics(loan, rDeploy));
+  const totalDebt = metrics.reduce((sum, item) => sum + item.debt, 0);
+  const totalRiskCollateral = metrics.reduce((sum, item) => sum + item.collateralUSD, 0);
+  const totalVaultAssets = vaults.reduce((sum, vault) => sum + vault.totalAssetsUsd, 0);
+  const totalAssets = totalRiskCollateral + totalVaultAssets;
+  const totalNetWorth = metrics.reduce((sum, item) => sum + item.equity, 0) + totalVaultAssets;
+  const totalSupplyEarn =
+    metrics.reduce((sum, item) => sum + item.supplyEarnUSD, 0) +
+    vaults.reduce((sum, vault) => sum + vault.totalAssetsUsd * vault.netApy, 0);
+  const totalBorrowCost = metrics.reduce((sum, item) => sum + item.borrowCostUSD, 0);
+  const totalDeployEarn = metrics.reduce((sum, item) => sum + item.deployEarnUSD, 0);
+  const totalNetEarn = totalSupplyEarn - totalBorrowCost;
+  const totalMaxBorrow = metrics.reduce((sum, item) => sum + item.maxBorrowByLTV, 0);
+
+  const finiteHealthFactors = metrics
+    .map((item) => item.healthFactor)
+    .filter((item) => Number.isFinite(item));
+  const averageHealthFactor =
+    finiteHealthFactors.length > 0
+      ? finiteHealthFactors.reduce((sum, item) => sum + item, 0) / finiteHealthFactors.length
+      : Infinity;
+
+  const borrowedAssetPricesByAddress = new Map<string, number>();
+  for (const loan of loans) {
+    for (const asset of loan.borrowed) {
+      borrowedAssetPricesByAddress.set(asset.address.toLowerCase(), asset.usdPrice);
+    }
+  }
+
+  let walletBorrowedAssetUsd = 0;
+  for (const [address, balance] of walletBorrowedAssetBalances.entries()) {
+    walletBorrowedAssetUsd += balance * (borrowedAssetPricesByAddress.get(address) ?? 0);
+  }
+
+  return {
+    loanCount: loans.length,
+    vaultCount: vaults.length,
+    positionCount: loans.length + vaults.length,
+    totalDebt,
+    totalRiskCollateral,
+    totalVaultAssets,
+    totalAssets,
+    totalNetWorth,
+    totalSupplyEarn,
+    totalBorrowCost,
+    totalDeployEarn,
+    totalNetEarn,
+    averageHealthFactor,
+    averageSupplyApy: totalAssets > 0 ? totalSupplyEarn / totalAssets : 0,
+    averageBorrowApy: totalDebt > 0 ? totalBorrowCost / totalDebt : 0,
+    portfolioNetApy: totalNetWorth > 0 ? totalNetEarn / totalNetWorth : 0,
+    portfolioNetApyOnDebt: totalDebt > 0 ? totalNetEarn / totalDebt : 0,
+    borrowPowerUsed: totalMaxBorrow > 0 ? totalDebt / totalMaxBorrow : 0,
+    repayCoverage: totalDebt > 0 ? walletBorrowedAssetUsd / totalDebt : 0,
+    walletBorrowedAssetUsd,
   };
 }
