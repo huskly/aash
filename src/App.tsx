@@ -14,6 +14,7 @@ import { Button } from './components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Input } from './components/ui/input';
 import { Separator } from './components/ui/separator';
+import { cn } from './lib/utils';
 import {
   BorrowRateHistoryCard,
   type BorrowRateSample,
@@ -32,7 +33,6 @@ import {
   clamp,
   computeLoanMetrics,
   healthLabel,
-  portfolioHealthFactorBand,
   parseDeployRate,
   fetchFromAaveSubgraph,
   fetchFromMorphoApi,
@@ -276,10 +276,13 @@ export default function App() {
       walletBorrowedAssetUsd,
     };
   }, [result, walletBorrowedAssetBalances]);
-  const portfolioHealthBand = useMemo(
-    () => portfolioHealthFactorBand(portfolio?.averageHealthFactor ?? NaN),
-    [portfolio],
-  );
+  const loanRows = useMemo(() => {
+    if (!result) return [];
+    return result.loans.map((loan) => ({
+      loan,
+      metrics: computeLoanMetrics(loan, R_DEPLOY),
+    }));
+  }, [result]);
 
   const fetchLoans = useCallback(async (normalizedWallet: string) => {
     setError('');
@@ -544,117 +547,191 @@ export default function App() {
                 <>
                   {portfolio ? (
                     <Card className="mt-4">
-                      <CardHeader>
-                        <CardTitle className="inline-flex items-center gap-2">
-                          Portfolio Metrics <Info size={16} className="text-muted-foreground" />
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="grid-cols-3 max-[980px]:grid-cols-1">
-                        <KpiCard
-                          title="Total debt"
-                          value={fmtUSD(portfolio.totalDebt, 0)}
-                          caption="Combined across all active loans"
-                        />
-                        <KpiCard
-                          title="Total net worth"
-                          value={fmtUSD(portfolio.totalNetWorth, 0)}
-                          caption="Collateral - Debt"
-                        />
-                        <KpiCard
-                          title="Total collateral"
-                          value={fmtUSD(portfolio.totalCollateral, 0)}
-                          caption="Combined supplied collateral across all loans"
-                        />
-                        <KpiCard
-                          title="Net earnings (annual)"
-                          value={fmtUSD(portfolio.totalNetEarn, 0)}
-                          caption="Estimated yearly carry across the portfolio"
-                        />
-                        <KpiCard
-                          title="Average health factor"
-                          value={
-                            Number.isFinite(portfolio.averageHealthFactor)
-                              ? portfolio.averageHealthFactor.toFixed(2)
-                              : '∞'
-                          }
-                          valueClassName={portfolioHealthBand.valueClassName}
-                          caption={`Arithmetic average across active loans · ${portfolioHealthBand.guidance}`}
-                        />
-                        <KpiCard
-                          title="Net APY (portfolio)"
-                          value={fmtPct(portfolio.portfolioNetApy)}
-                          valueClassName={
-                            portfolio.portfolioNetApy >= 0
-                              ? 'text-positive'
-                              : portfolio.portfolioNetApy > -0.03
-                                ? 'text-warning'
-                                : 'text-destructive'
-                          }
-                          caption="Weighted by net worth"
-                        />
-                        <KpiCard
-                          title="Net APY (debt)"
-                          value={fmtPct(portfolio.portfolioNetApyOnDebt)}
-                          valueClassName={
-                            portfolio.portfolioNetApyOnDebt >= 0
-                              ? 'text-positive'
-                              : portfolio.portfolioNetApyOnDebt > -0.03
-                                ? 'text-warning'
-                                : 'text-destructive'
-                          }
-                          caption="Weighted by total debt"
-                        />
-                        <KpiCard
-                          title="Borrow power used"
-                          value={fmtPct(portfolio.borrowPowerUsed)}
-                          caption="Debt / Max borrow by LTV"
-                        />
-                        <KpiCard
-                          title="Repay coverage"
-                          value={fmtPct(portfolio.repayCoverage)}
-                          valueClassName={
-                            portfolio.repayCoverage >= 0.1
-                              ? 'text-positive'
-                              : portfolio.repayCoverage >= 0.05
-                                ? 'text-warning'
-                                : 'text-destructive'
-                          }
-                          caption={`${fmtUSD(portfolio.walletBorrowedAssetUsd, 0)} wallet balances matching borrowed assets / ${fmtUSD(portfolio.totalDebt, 0)} debt`}
-                        />
-                      </CardContent>
-                      <CardContent>
-                        <Row
-                          label="Supply APY (weighted)"
-                          value={fmtPct(portfolio.averageSupplyApy)}
-                        />
-                        <Row
-                          label="Borrow APY (weighted)"
-                          value={fmtPct(portfolio.averageBorrowApy)}
-                        />
-                        <Row
-                          label="Debt deploy earnings est. (yearly)"
-                          value={fmtUSD(portfolio.totalDeployEarn, 0)}
-                        />
+                      <CardContent className="pt-6">
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-8 gap-y-4">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Total Debt</p>
+                            <p className="text-4xl font-bold tracking-tight tabular-nums">
+                              {fmtUSD(portfolio.totalDebt, 0)}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <Badge
+                              variant={toBadgeVariant(
+                                healthLabel(portfolio.averageHealthFactor).tone,
+                              )}
+                              className="text-sm"
+                            >
+                              HF{' '}
+                              {Number.isFinite(portfolio.averageHealthFactor)
+                                ? portfolio.averageHealthFactor.toFixed(2)
+                                : '∞'}
+                            </Badge>
+                            <Badge
+                              variant={
+                                portfolio.portfolioNetApy >= 0
+                                  ? 'positive'
+                                  : portfolio.portfolioNetApy > -0.03
+                                    ? 'warning'
+                                    : 'destructive'
+                              }
+                              className="text-sm"
+                            >
+                              Net APY {fmtPct(portfolio.portfolioNetApy)}
+                            </Badge>
+                            <div className="text-right">
+                              <p className="text-xs text-muted-foreground">Total Collateral</p>
+                              <p className="text-xl font-semibold tabular-nums">
+                                {fmtUSD(portfolio.totalCollateral, 0)}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                          <span>
+                            Net worth{' '}
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {fmtUSD(portfolio.totalNetWorth, 0)}
+                            </span>
+                          </span>
+                          <span>
+                            Net earnings{' '}
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {fmtUSD(portfolio.totalNetEarn, 0)}/yr
+                            </span>
+                          </span>
+                          <span>
+                            Borrow power used{' '}
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {fmtPct(portfolio.borrowPowerUsed)}
+                            </span>
+                          </span>
+                          <span>
+                            Supply APY{' '}
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {fmtPct(portfolio.averageSupplyApy)}
+                            </span>
+                          </span>
+                          <span>
+                            Borrow APY{' '}
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {fmtPct(portfolio.averageBorrowApy)}
+                            </span>
+                          </span>
+                          <span>
+                            Net APY (debt){' '}
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {fmtPct(portfolio.portfolioNetApyOnDebt)}
+                            </span>
+                          </span>
+                          <span>
+                            Repay coverage{' '}
+                            <span
+                              className={cn(
+                                'font-semibold tabular-nums',
+                                portfolio.repayCoverage >= 0.1
+                                  ? 'text-positive'
+                                  : portfolio.repayCoverage >= 0.05
+                                    ? 'text-warning'
+                                    : 'text-destructive',
+                              )}
+                            >
+                              {fmtPct(portfolio.repayCoverage)}
+                            </span>
+                          </span>
+                          <span>
+                            Deploy earnings{' '}
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {fmtUSD(portfolio.totalDeployEarn, 0)}/yr
+                            </span>
+                          </span>
+                        </div>
                       </CardContent>
                     </Card>
                   ) : null}
 
-                  <nav className="mt-4 flex flex-wrap gap-2" aria-label="Loan positions">
-                    {result.loans.map((loan, index) => (
-                      <Button
-                        key={loan.id}
-                        type="button"
-                        variant={loan.id === selectedLoan?.id ? 'default' : 'secondary'}
-                        size="sm"
-                        onClick={() => setSelectedLoanId(loan.id)}
-                      >
-                        Loan {index + 1}: {loan.marketName} ·{' '}
-                        {loan.borrowed.map((b) => b.symbol).join(' + ')}
-                      </Button>
-                    ))}
-                  </nav>
+                  <Card className="mt-4">
+                    <CardHeader>
+                      <CardTitle>Loan Positions</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                              <th className="px-4 py-2.5 font-medium">Market</th>
+                              <th className="px-4 py-2.5 font-medium">Collateral</th>
+                              <th className="px-4 py-2.5 font-medium">Borrowed</th>
+                              <th className="px-4 py-2.5 font-medium text-right">Debt</th>
+                              <th className="px-4 py-2.5 font-medium text-right">HF</th>
+                              <th className="px-4 py-2.5 font-medium text-right">Rate</th>
+                              <th className="px-4 py-2.5 font-medium text-right">LTV</th>
+                              <th className="px-4 py-2.5 font-medium text-right">Liq. Price</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {loanRows.map(({ loan, metrics }) => (
+                              <tr
+                                key={loan.id}
+                                onClick={() => setSelectedLoanId(loan.id)}
+                                className={cn(
+                                  'cursor-pointer border-b border-border transition-colors hover:bg-accent/50',
+                                  loan.id === selectedLoanId && 'bg-accent',
+                                )}
+                              >
+                                <td className="px-4 py-3 font-medium">{loan.marketName}</td>
+                                <td className="px-4 py-3">
+                                  {loan.supplied.map((a) => a.symbol).join(', ')}
+                                </td>
+                                <td className="px-4 py-3">
+                                  {loan.borrowed.map((a) => a.symbol).join(' + ')}
+                                </td>
+                                <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                                  {fmtUSD(metrics.debt, 0)}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <Badge
+                                    variant={toBadgeVariant(healthLabel(metrics.healthFactor).tone)}
+                                  >
+                                    {Number.isFinite(metrics.healthFactor)
+                                      ? metrics.healthFactor.toFixed(2)
+                                      : '∞'}
+                                  </Badge>
+                                </td>
+                                <td className="px-4 py-3 text-right tabular-nums">
+                                  {fmtPct(metrics.rBorrow)}
+                                </td>
+                                <td className="px-4 py-3 text-right tabular-nums">
+                                  {fmtPct(metrics.ltv)}
+                                </td>
+                                <td className="px-4 py-3 text-right tabular-nums">
+                                  {metrics.assetLiquidations.length === 0
+                                    ? '—'
+                                    : metrics.assetLiquidations.length === 1
+                                      ? fmtUSD(metrics.assetLiquidations[0]!.liqPrice, 2)
+                                      : metrics.assetLiquidations
+                                          .map((a) => `${a.symbol}: ${fmtUSD(a.liqPrice, 0)}`)
+                                          .join(' | ')}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
 
-                  <section className="mt-4 grid gap-4 [grid-template-columns:minmax(320px,0.95fr)_minmax(0,2fr)] max-[980px]:grid-cols-1">
+                  {selectedLoan && (
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      Showing details for{' '}
+                      <span className="font-semibold text-foreground">
+                        {selectedLoan.marketName} ·{' '}
+                        {selectedLoan.borrowed.map((b) => b.symbol).join(' + ')}
+                      </span>
+                    </p>
+                  )}
+
+                  <section className="mt-2 grid gap-4 [grid-template-columns:minmax(320px,0.95fr)_minmax(0,2fr)] max-[980px]:grid-cols-1">
                     <Card>
                       <CardHeader>
                         <CardTitle className="inline-flex items-center gap-2">
