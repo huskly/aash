@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -121,6 +122,27 @@ function toBadgeVariant(tone: BadgeTone): BadgeVariant {
   if (tone === 'warning') return 'warning';
   if (tone === 'danger') return 'destructive';
   return 'default';
+}
+
+function MetricTooltip({
+  children,
+  description,
+  className,
+}: {
+  children: ReactNode;
+  description: string;
+  className?: string;
+}) {
+  const tooltipId = useId();
+
+  return (
+    <div className={cn('metric-tooltip', className)} tabIndex={0} aria-describedby={tooltipId}>
+      {children}
+      <span id={tooltipId} role="tooltip" className="metric-tooltip-content">
+        {description}
+      </span>
+    </div>
+  );
 }
 
 function buildBorrowRateHistoryKey(marketName: string, assetAddress: string): string {
@@ -509,99 +531,110 @@ export default function App() {
                       <CardContent className="pt-6">
                         <div className="flex flex-wrap items-baseline justify-between gap-x-8 gap-y-4">
                           <div>
-                            <p className="text-xs text-muted-foreground">Total Debt</p>
-                            <p className="text-4xl font-bold tracking-tight tabular-nums">
-                              {fmtUSD(portfolio.totalDebt, 0)}
-                            </p>
+                            <MetricTooltip description="Total debt is the sum of borrowed USD value across all active loan positions.">
+                              <p className="text-xs text-muted-foreground">Total Debt</p>
+                              <p className="text-4xl font-bold tracking-tight tabular-nums">
+                                {fmtUSD(portfolio.totalDebt, 0)}
+                              </p>
+                            </MetricTooltip>
                           </div>
                           <div className="flex flex-wrap items-center gap-3">
-                            <Badge
-                              variant={toBadgeVariant(
-                                healthLabel(portfolio.averageHealthFactor).tone,
-                              )}
-                              className="text-sm"
+                            <MetricTooltip description="HF is the average of finite per-loan health factors, with each loan calculated as risk collateral times liquidation threshold divided by debt.">
+                              <Badge
+                                variant={toBadgeVariant(
+                                  healthLabel(portfolio.averageHealthFactor).tone,
+                                )}
+                                className="text-sm"
+                              >
+                                HF{' '}
+                                {Number.isFinite(portfolio.averageHealthFactor)
+                                  ? portfolio.averageHealthFactor.toFixed(2)
+                                  : '∞'}
+                              </Badge>
+                            </MetricTooltip>
+                            <MetricTooltip description="Net APY is annual net earnings divided by net worth after adding loan supply income and vault income, then subtracting borrow cost.">
+                              <Badge
+                                variant={
+                                  portfolio.portfolioNetApy >= 0
+                                    ? 'positive'
+                                    : portfolio.portfolioNetApy > -0.03
+                                      ? 'warning'
+                                      : 'destructive'
+                                }
+                                className="text-sm"
+                              >
+                                Net APY {fmtPct(portfolio.portfolioNetApy)}
+                              </Badge>
+                            </MetricTooltip>
+                            <MetricTooltip
+                              description="Total assets are risk collateral from loan positions plus USD value held in Morpho vault deposits."
+                              className="text-right"
                             >
-                              HF{' '}
-                              {Number.isFinite(portfolio.averageHealthFactor)
-                                ? portfolio.averageHealthFactor.toFixed(2)
-                                : '∞'}
-                            </Badge>
-                            <Badge
-                              variant={
-                                portfolio.portfolioNetApy >= 0
-                                  ? 'positive'
-                                  : portfolio.portfolioNetApy > -0.03
-                                    ? 'warning'
-                                    : 'destructive'
-                              }
-                              className="text-sm"
-                            >
-                              Net APY {fmtPct(portfolio.portfolioNetApy)}
-                            </Badge>
-                            <div className="text-right">
-                              <p className="text-xs text-muted-foreground">Total Assets</p>
-                              <p className="text-xl font-semibold tabular-nums">
-                                {fmtUSD(portfolio.totalAssets, 0)}
-                              </p>
-                            </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Total Assets</p>
+                                <p className="text-xl font-semibold tabular-nums">
+                                  {fmtUSD(portfolio.totalAssets, 0)}
+                                </p>
+                              </div>
+                            </MetricTooltip>
                           </div>
                         </div>
                         <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                          <span>
+                          <MetricTooltip description="Risk collateral is the sum of supplied collateral USD value across loan positions only.">
                             Risk collateral{' '}
                             <span className="font-semibold tabular-nums text-foreground">
                               {fmtUSD(portfolio.totalRiskCollateral, 0)}
                             </span>
-                          </span>
-                          <span>
+                          </MetricTooltip>
+                          <MetricTooltip description="Vault deposits are the sum of Morpho vault position values in USD.">
                             Vault deposits{' '}
                             <span className="font-semibold tabular-nums text-foreground">
                               {fmtUSD(portfolio.totalVaultAssets, 0)}
                             </span>
-                          </span>
-                          <span>
+                          </MetricTooltip>
+                          <MetricTooltip description="Net worth is loan collateral minus loan debt, plus Morpho vault deposit value.">
                             Net worth{' '}
                             <span className="font-semibold tabular-nums text-foreground">
                               {fmtUSD(portfolio.totalNetWorth, 0)}
                             </span>
-                          </span>
-                          <span>
+                          </MetricTooltip>
+                          <MetricTooltip description="Net earnings are annual loan supply income plus vault income minus annual borrow cost.">
                             Net earnings{' '}
                             <span className="font-semibold tabular-nums text-foreground">
                               {fmtUSD(portfolio.totalNetEarn, 0)}/yr
                             </span>
-                          </span>
-                          <span>
+                          </MetricTooltip>
+                          <MetricTooltip description="Net borrow cost is the gross annual borrow interest cost across loan positions before supply or vault income offsets.">
                             Net borrow cost{' '}
                             <span className="font-semibold tabular-nums text-foreground">
-                              {fmtUSD(portfolio.totalLoanNetEarnAfterVaults, 0)}/yr
+                              {fmtUSD(portfolio.totalBorrowCost, 0)}/yr
                             </span>
-                          </span>
-                          <span>
+                          </MetricTooltip>
+                          <MetricTooltip description="Borrow power used is total debt divided by the sum of each loan's collateral value times its weighted max LTV.">
                             Borrow power used{' '}
                             <span className="font-semibold tabular-nums text-foreground">
                               {fmtPct(portfolio.borrowPowerUsed)}
                             </span>
-                          </span>
-                          <span>
+                          </MetricTooltip>
+                          <MetricTooltip description="Supply APY is annual loan supply income plus vault income divided by total assets.">
                             Supply APY{' '}
                             <span className="font-semibold tabular-nums text-foreground">
                               {fmtPct(portfolio.averageSupplyApy)}
                             </span>
-                          </span>
-                          <span>
+                          </MetricTooltip>
+                          <MetricTooltip description="Borrow APY is annual borrow cost divided by total debt.">
                             Borrow APY{' '}
                             <span className="font-semibold tabular-nums text-foreground">
                               {fmtPct(portfolio.averageBorrowApy)}
                             </span>
-                          </span>
-                          <span>
+                          </MetricTooltip>
+                          <MetricTooltip description="Net APY on debt is annual net earnings divided by total debt.">
                             Net APY (debt){' '}
                             <span className="font-semibold tabular-nums text-foreground">
                               {fmtPct(portfolio.portfolioNetApyOnDebt)}
                             </span>
-                          </span>
-                          <span>
+                          </MetricTooltip>
+                          <MetricTooltip description="Repay coverage is wallet-held borrowed-asset USD value divided by total debt.">
                             Repay coverage{' '}
                             <span
                               className={cn(
@@ -615,7 +648,7 @@ export default function App() {
                             >
                               {fmtPct(portfolio.repayCoverage)}
                             </span>
-                          </span>
+                          </MetricTooltip>
                         </div>
                       </CardContent>
                     </Card>

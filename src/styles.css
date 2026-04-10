@@ -42,3 +42,48 @@ body {
   background-color: var(--color-background);
   color: var(--color-foreground);
 }
+
+.metric-tooltip {
+  position: relative;
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+  cursor: help;
+  outline: none;
+}
+
+.metric-tooltip:focus-visible {
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 2px var(--color-ring);
+}
+
+.metric-tooltip-content {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 50;
+  width: max-content;
+  max-width: min(18rem, calc(100vw - 2rem));
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-muted);
+  color: var(--color-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  text-align: left;
+  transform: translateY(0.25rem);
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+  white-space: normal;
+}
+
+.metric-tooltip:hover .metric-tooltip-content,
+.metric-tooltip:focus-visible .metric-tooltip-content {
+  opacity: 1;
+  transform: translateY(0);
+}

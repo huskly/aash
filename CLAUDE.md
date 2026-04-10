@@ -81,7 +81,8 @@ Frontend notes:
 - On page load, wallet resolution order is: query string (`wallet`, `address`, `walletAddress`) first, then saved local storage wallet.
 - Portfolio summary math is centralized in `computePortfolioSummary()` in `packages/aave-core/src/metrics.ts`.
 - The dashboard's `Total Assets`, `Net worth`, `Supply APY`, `Net earnings`, and `Net APY` include Morpho vault deposits; `HF`, `Borrow power used`, and `Repay coverage` remain loan-only.
-- Portfolio `Net borrow cost` displays per-loan `Net earnings (annual)` values (`supply earnings - borrow cost`) plus Morpho vault net income.
+- Top-level portfolio metrics use hover/focus tooltips to explain their calculation in one sentence.
+- Portfolio `Net borrow cost` displays the gross annual loan borrow interest cost before supply earnings or Morpho vault income offsets.
 - The portfolio card labeled `Repay coverage` is based on wallet-held balances of tokens that also appear in the loan's borrowed asset set; it does not include unrelated wallet assets or vault deposits.
 - The utilization curve and borrow APR history charts depend on the Express API server for on-chain reserve telemetry. Without `yarn dev:server` (or the unified Docker/server runtime), those charts fall back to an unavailable message.
 - Server settings saves surface toast feedback in the dashboard for both successful updates and failed save attempts.
