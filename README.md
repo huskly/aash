@@ -38,6 +38,7 @@ A React + Vite dashboard that auto-loads Aave loans, Morpho Blue market position
 - Price enrichment with CoinGecko, including symbol aliases for wrapped assets such as `cbBTC`.
 - Dashboard analytics:
   - Health Factor
+    liquidation price
   - Liquidation price (primary-collateral approximation)
   - LTV, leverage, borrow headroom
   - Carry / Net APY summary, including loan net earnings offset by Morpho vault net income and gross annual borrow cost

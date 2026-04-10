@@ -5,6 +5,6 @@
 - This is a public repository, so make sure there are no sensitive details in the repo before finishing (eg. keys, secrets, etc)
 - Use yarn for managing dependencies
 - Use `gh` to interact with Github pull requests, issues, etc.
-- Please make sure the project `README.md` and documentation under `docs/` are kept up to date with each change.
+- Please make sure the project `README.md` and documentation under `docs/` are kept up to date with relevant changes.
 - Please write automated tests to cover newly added functionality wherever appropriate, or update existing tests when changing code.
 - Please use conventional commits format for commit messages (eg. fix:/chore:/feat: etc)

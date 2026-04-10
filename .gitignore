@@ -9,4 +9,3 @@ packages/rescue-contract/cache/
 packages/rescue-contract/out/
 packages/rescue-contract/broadcast/
 .codex
-packages/server/src/scripts/deploy-morpho.sh
