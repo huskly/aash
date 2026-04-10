@@ -1,77 +1,40 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from 'react';
-import { formatDistance } from 'date-fns';
-import { AlertTriangle, Info, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
-import { Badge, type BadgeVariant } from './components/ui/badge';
-import { Button } from './components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
-import { Input } from './components/ui/input';
-import { Separator } from './components/ui/separator';
-import { cn } from './lib/utils';
-import {
-  BorrowRateHistoryCard,
-  type BorrowRateSample,
-  UtilizationCurveCard,
-} from './components/ReserveCharts';
-import { type ToastMessage } from './components/ui/toast-context';
-import { ToastProvider, ToastViewport } from './components/ui/toast';
-import {
-  type BadgeTone,
-  type AssetPosition,
-  type FetchState,
-  type MorphoVaultPosition,
-  type ReserveTelemetry,
-  ETHEREUM_ADDRESS_REGEX,
-  clamp,
+  buildLoanPositions,
   computeLoanMetrics,
   computePortfolioSummary,
-  healthLabel,
+  ETHEREUM_ADDRESS_REGEX,
   fetchFromAaveSubgraph,
   fetchMorphoPositions,
   fetchUsdPrices,
-  buildLoanPositions,
+  type FetchState,
+  type ReserveTelemetry,
 } from '@aave-monitor/core';
+import { fetchReserveTelemetry, fetchWalletAssetBalances } from './api/aaveMonitor';
+import {
+  appendBorrowRateSample,
+  buildBorrowRateHistoryKey,
+  readBorrowRateHistory,
+  writeBorrowRateHistory,
+} from './lib/borrowRateHistory';
+import { type BorrowRateSample } from './components/ReserveCharts';
 import { ServerSettings } from './components/ServerSettings';
+import { ToastProvider, ToastViewport } from './components/ui/toast';
+import { type ToastMessage } from './components/ui/toast-context';
+import { Card, CardContent } from './components/ui/card';
+import { WalletSearchCard } from './components/dashboard/WalletSearchCard';
+import { PortfolioSummaryCard, WalletResultCard } from './components/dashboard/SummaryCards';
+import {
+  type LoanRow,
+  LoanPositionsTable,
+  VaultPositionsTable,
+} from './components/dashboard/PositionTables';
+import { PositionDetailsSection, SelectedLoanLabel } from './components/dashboard/PositionDetails';
 
 const GRAPH_API_KEY = import.meta.env.VITE_THE_GRAPH_API_KEY as string | undefined;
 const COINGECKO_API_KEY = import.meta.env.VITE_COINGECKO_API_KEY as string | undefined;
 const UPDATE_RATE_MS = 120_000;
 const LAST_WALLET_STORAGE_KEY = 'aave-monitor:last-wallet';
-const BORROW_RATE_HISTORY_STORAGE_PREFIX = 'aave-monitor:borrow-apr-history';
-const BORROW_RATE_SAMPLE_INTERVAL_MS = 15 * 60 * 1000;
-const MAX_BORROW_RATE_SAMPLES = 2_000;
-
-async function fetchWalletAssetBalances(
-  wallet: string,
-  assets: AssetPosition[],
-): Promise<Map<string, number>> {
-  const tokens = Array.from(
-    new Map(
-      assets.map((asset) => [
-        asset.address.toLowerCase(),
-        { address: asset.address.toLowerCase(), decimals: asset.decimals },
-      ]),
-    ).values(),
-  );
-  if (tokens.length === 0) return new Map();
-
-  const res = await fetch(`/api/balances/${wallet}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tokens }),
-  });
-  if (!res.ok) return new Map();
-  const data = (await res.json()) as Record<string, number>;
-  return new Map(Object.entries(data).map(([address, amount]) => [address.toLowerCase(), amount]));
-}
 
 function getWalletFromQueryString(): string {
   const params = new URLSearchParams(window.location.search);
@@ -87,133 +50,6 @@ function getInitialWallet(): string {
   } catch {
     return '';
   }
-}
-
-function fmtUSD(value: number, digits = 0): string {
-  if (!Number.isFinite(value)) return '—';
-  return value.toLocaleString(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: digits,
-    minimumFractionDigits: digits,
-  });
-}
-
-function fmtPct(value: number, digits = 2): string {
-  return `${(value * 100).toFixed(digits)}%`;
-}
-
-function fmtAmount(value: number, digits = 4): string {
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: digits,
-  });
-}
-
-function fmtTimeAgo(value: string, now: number): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  if (date.getTime() >= now) return 'just now';
-  return formatDistance(date, new Date(now), { addSuffix: true });
-}
-
-function toBadgeVariant(tone: BadgeTone): BadgeVariant {
-  if (tone === 'positive') return 'positive';
-  if (tone === 'warning') return 'warning';
-  if (tone === 'danger') return 'destructive';
-  return 'default';
-}
-
-function MetricTooltip({
-  children,
-  description,
-  className,
-}: {
-  children: ReactNode;
-  description: string;
-  className?: string;
-}) {
-  const tooltipId = useId();
-
-  return (
-    <div className={cn('metric-tooltip', className)} tabIndex={0} aria-describedby={tooltipId}>
-      {children}
-      <span id={tooltipId} role="tooltip" className="metric-tooltip-content">
-        {description}
-      </span>
-    </div>
-  );
-}
-
-function buildBorrowRateHistoryKey(marketName: string, assetAddress: string): string {
-  return `${BORROW_RATE_HISTORY_STORAGE_PREFIX}:${marketName}:${assetAddress.toLowerCase()}`;
-}
-
-function readBorrowRateHistory(storageKey: string): BorrowRateSample[] {
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return [];
-
-    const parsed = JSON.parse(raw) as BorrowRateSample[];
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed.filter(
-      (entry) =>
-        typeof entry?.timestamp === 'string' &&
-        typeof entry?.variableBorrowRate === 'number' &&
-        typeof entry?.utilizationRate === 'number',
-    );
-  } catch {
-    return [];
-  }
-}
-
-function writeBorrowRateHistory(storageKey: string, samples: BorrowRateSample[]): void {
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(samples));
-  } catch {
-    // Ignore storage errors.
-  }
-}
-
-function appendBorrowRateSample(
-  samples: BorrowRateSample[],
-  nextSample: BorrowRateSample,
-): BorrowRateSample[] {
-  const nextTimestamp = new Date(nextSample.timestamp).getTime();
-  if (!Number.isFinite(nextTimestamp)) return samples;
-
-  const previous = samples.at(-1);
-  if (previous) {
-    const previousTimestamp = new Date(previous.timestamp).getTime();
-    if (
-      Number.isFinite(previousTimestamp) &&
-      nextTimestamp - previousTimestamp < BORROW_RATE_SAMPLE_INTERVAL_MS
-    ) {
-      const updated = [...samples.slice(0, -1), nextSample];
-      return updated.slice(-MAX_BORROW_RATE_SAMPLES);
-    }
-  }
-
-  return [...samples, nextSample].slice(-MAX_BORROW_RATE_SAMPLES);
-}
-
-async function fetchReserveTelemetry(
-  marketName: string,
-  assetAddress: string,
-  symbol: string,
-): Promise<ReserveTelemetry> {
-  const params = new URLSearchParams({
-    market: marketName,
-    asset: assetAddress,
-    symbol,
-  });
-  const res = await fetch(`/api/reserves/telemetry?${params.toString()}`);
-  if (!res.ok) {
-    throw new Error('Reserve telemetry is unavailable. Start the API server to enable the charts.');
-  }
-
-  return (await res.json()) as ReserveTelemetry;
 }
 
 export default function App() {
@@ -241,18 +77,18 @@ export default function App() {
   }, [result, selectedLoanId]);
 
   const computed = useMemo(() => computeLoanMetrics(selectedLoan), [selectedLoan]);
-  const status = healthLabel(computed.healthFactor);
   const portfolio = useMemo(() => {
     if (!result) return null;
     return computePortfolioSummary(result.loans, result.vaults, walletBorrowedAssetBalances);
   }, [result, walletBorrowedAssetBalances]);
-  const loanRows = useMemo(() => {
-    if (!result) return [];
-    return result.loans.map((loan) => ({
-      loan,
-      metrics: computeLoanMetrics(loan),
-    }));
-  }, [result]);
+  const loanRows: LoanRow[] = useMemo(
+    () =>
+      (result?.loans ?? []).map((loan) => ({
+        loan,
+        metrics: computeLoanMetrics(loan),
+      })),
+    [result],
+  );
   const vaultRows = useMemo(() => result?.vaults ?? [], [result]);
   const hasAnyPositions = Boolean(result && (result.loans.length > 0 || result.vaults.length > 0));
 
@@ -343,22 +179,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!selectedLoan) {
+    if (!selectedLoan || selectedLoan.borrowed.length === 0) {
       setSelectedReserveTelemetry(null);
       setReserveTelemetryError('');
       setBorrowRateHistory([]);
       return;
     }
 
-    if (selectedLoan.borrowed.length === 0) {
-      setSelectedReserveTelemetry(null);
-      setReserveTelemetryError('');
-      setBorrowRateHistory([]);
-      return;
-    }
-
-    const primaryBorrow = selectedLoan.borrowed.reduce((max, b) =>
-      b.usdValue > max.usdValue ? b : max,
+    const primaryBorrow = selectedLoan.borrowed.reduce((max, borrowed) =>
+      borrowed.usdValue > max.usdValue ? borrowed : max,
     );
     const storageKey = buildBorrowRateHistoryKey(selectedLoan.marketName, primaryBorrow.address);
     setBorrowRateHistory(readBorrowRateHistory(storageKey));
@@ -388,11 +217,13 @@ export default function App() {
           return nextSamples;
         });
       })
-      .catch((error) => {
+      .catch((telemetryError: unknown) => {
         if (cancelled) return;
         setSelectedReserveTelemetry(null);
         setReserveTelemetryError(
-          error instanceof Error ? error.message : 'Failed to fetch reserve telemetry.',
+          telemetryError instanceof Error
+            ? telemetryError.message
+            : 'Failed to fetch reserve telemetry.',
         );
       });
 
@@ -449,630 +280,38 @@ export default function App() {
             <ServerSettings />
           </header>
 
-          <Card className="mt-6">
-            <CardContent className="pt-6">
-              <form
-                className="flex flex-wrap items-end gap-3 max-[980px]:items-stretch"
-                onSubmit={handleFetch}
-              >
-                <label
-                  className="grid min-w-0 gap-1.5 text-sm max-[980px]:w-full max-[980px]:max-w-full"
-                  htmlFor="wallet"
-                >
-                  <span className="text-muted-foreground">Wallet address</span>
-                  <Input
-                    className="max-[980px]:max-w-full"
-                    id="wallet"
-                    type="text"
-                    value={wallet}
-                    onChange={(event) => setWallet(event.target.value)}
-                    placeholder="0x..."
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                </label>
-
-                <Button
-                  className="max-[980px]:w-full max-[980px]:max-w-full"
-                  type="submit"
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <RefreshCw size={16} className="animate-spin" />
-                  ) : (
-                    <Wallet size={16} />
-                  )}
-                  {isLoading ? 'Fetching positions...' : 'Fetch positions'}
-                </Button>
-                <Button
-                  className="max-[980px]:w-full max-[980px]:max-w-full"
-                  type="button"
-                  variant="secondary"
-                  onClick={handleRefresh}
-                  disabled={isLoading}
-                >
-                  <RefreshCw size={16} className={isLoading ? 'animate-spin' : undefined} />
-                  Refresh
-                </Button>
-              </form>
-
-              {error ? (
-                <p className="mt-3 inline-flex items-center gap-2 text-sm text-destructive">
-                  <AlertTriangle size={16} />
-                  {error}
-                </p>
-              ) : null}
-            </CardContent>
-          </Card>
+          <WalletSearchCard
+            error={error}
+            isLoading={isLoading}
+            wallet={wallet}
+            onRefresh={handleRefresh}
+            onSubmit={handleFetch}
+            onWalletChange={setWallet}
+          />
 
           {result ? (
             <>
-              <Card className="mt-4">
-                <CardContent className="gap-1 pt-5 pb-5">
-                  <p className="text-xs text-muted-foreground">Wallet</p>
-                  <p className="break-all font-mono text-sm">{result.wallet}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Found {result.loans.length + result.vaults.length} active position(s)
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {result.loans.length} loan position(s) · {result.vaults.length} vault
-                    position(s)
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Last updated: {fmtTimeAgo(result.lastUpdated, now)}
-                  </p>
-                </CardContent>
-              </Card>
+              <WalletResultCard result={result} now={now} />
 
               {hasAnyPositions ? (
                 <>
-                  {portfolio ? (
-                    <Card className="mt-4">
-                      <CardContent className="pt-6">
-                        <div className="flex flex-wrap items-baseline justify-between gap-x-8 gap-y-4">
-                          <div>
-                            <MetricTooltip description="Total debt is the sum of borrowed USD value across all active loan positions.">
-                              <p className="text-xs text-muted-foreground">Total Debt</p>
-                              <p className="text-4xl font-bold tracking-tight tabular-nums">
-                                {fmtUSD(portfolio.totalDebt, 0)}
-                              </p>
-                            </MetricTooltip>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-3">
-                            <MetricTooltip description="HF is the average of finite per-loan health factors, with each loan calculated as risk collateral times liquidation threshold divided by debt.">
-                              <Badge
-                                variant={toBadgeVariant(
-                                  healthLabel(portfolio.averageHealthFactor).tone,
-                                )}
-                                className="text-sm"
-                              >
-                                HF{' '}
-                                {Number.isFinite(portfolio.averageHealthFactor)
-                                  ? portfolio.averageHealthFactor.toFixed(2)
-                                  : '∞'}
-                              </Badge>
-                            </MetricTooltip>
-                            <MetricTooltip description="Net APY is annual net earnings divided by net worth after adding loan supply income and vault income, then subtracting borrow cost.">
-                              <Badge
-                                variant={
-                                  portfolio.portfolioNetApy >= 0
-                                    ? 'positive'
-                                    : portfolio.portfolioNetApy > -0.03
-                                      ? 'warning'
-                                      : 'destructive'
-                                }
-                                className="text-sm"
-                              >
-                                Net APY {fmtPct(portfolio.portfolioNetApy)}
-                              </Badge>
-                            </MetricTooltip>
-                            <MetricTooltip
-                              description="Total assets are risk collateral from loan positions plus USD value held in Morpho vault deposits."
-                              className="text-right"
-                            >
-                              <div>
-                                <p className="text-xs text-muted-foreground">Total Assets</p>
-                                <p className="text-xl font-semibold tabular-nums">
-                                  {fmtUSD(portfolio.totalAssets, 0)}
-                                </p>
-                              </div>
-                            </MetricTooltip>
-                          </div>
-                        </div>
-                        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                          <MetricTooltip description="Risk collateral is the sum of supplied collateral USD value across loan positions only.">
-                            Risk collateral{' '}
-                            <span className="font-semibold tabular-nums text-foreground">
-                              {fmtUSD(portfolio.totalRiskCollateral, 0)}
-                            </span>
-                          </MetricTooltip>
-                          <MetricTooltip description="Vault deposits are the sum of Morpho vault position values in USD.">
-                            Vault deposits{' '}
-                            <span className="font-semibold tabular-nums text-foreground">
-                              {fmtUSD(portfolio.totalVaultAssets, 0)}
-                            </span>
-                          </MetricTooltip>
-                          <MetricTooltip description="Net worth is loan collateral minus loan debt, plus Morpho vault deposit value.">
-                            Net worth{' '}
-                            <span className="font-semibold tabular-nums text-foreground">
-                              {fmtUSD(portfolio.totalNetWorth, 0)}
-                            </span>
-                          </MetricTooltip>
-                          <MetricTooltip description="Net earnings are annual loan supply income plus vault income minus annual borrow cost.">
-                            Net earnings{' '}
-                            <span className="font-semibold tabular-nums text-foreground">
-                              {fmtUSD(portfolio.totalNetEarn, 0)}/yr
-                            </span>
-                          </MetricTooltip>
-                          <MetricTooltip description="Net borrow cost is the gross annual borrow interest cost across loan positions before supply or vault income offsets.">
-                            Net borrow cost{' '}
-                            <span className="font-semibold tabular-nums text-foreground">
-                              {fmtUSD(portfolio.totalBorrowCost, 0)}/yr
-                            </span>
-                          </MetricTooltip>
-                          <MetricTooltip description="Borrow power used is total debt divided by the sum of each loan's collateral value times its weighted max LTV.">
-                            Borrow power used{' '}
-                            <span className="font-semibold tabular-nums text-foreground">
-                              {fmtPct(portfolio.borrowPowerUsed)}
-                            </span>
-                          </MetricTooltip>
-                          <MetricTooltip description="Supply APY is annual loan supply income plus vault income divided by total assets.">
-                            Supply APY{' '}
-                            <span className="font-semibold tabular-nums text-foreground">
-                              {fmtPct(portfolio.averageSupplyApy)}
-                            </span>
-                          </MetricTooltip>
-                          <MetricTooltip description="Borrow APY is annual borrow cost divided by total debt.">
-                            Borrow APY{' '}
-                            <span className="font-semibold tabular-nums text-foreground">
-                              {fmtPct(portfolio.averageBorrowApy)}
-                            </span>
-                          </MetricTooltip>
-                          <MetricTooltip description="Net APY on debt is annual net earnings divided by total debt.">
-                            Net APY (debt){' '}
-                            <span className="font-semibold tabular-nums text-foreground">
-                              {fmtPct(portfolio.portfolioNetApyOnDebt)}
-                            </span>
-                          </MetricTooltip>
-                          <MetricTooltip description="Repay coverage is wallet-held borrowed-asset USD value divided by total debt.">
-                            Repay coverage{' '}
-                            <span
-                              className={cn(
-                                'font-semibold tabular-nums',
-                                portfolio.repayCoverage >= 0.1
-                                  ? 'text-positive'
-                                  : portfolio.repayCoverage >= 0.05
-                                    ? 'text-warning'
-                                    : 'text-destructive',
-                              )}
-                            >
-                              {fmtPct(portfolio.repayCoverage)}
-                            </span>
-                          </MetricTooltip>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ) : null}
+                  {portfolio ? <PortfolioSummaryCard portfolio={portfolio} /> : null}
 
-                  {result.loans.length > 0 ? (
-                    <Card className="mt-4">
-                      <CardHeader>
-                        <CardTitle>Loan Positions</CardTitle>
-                      </CardHeader>
-                      <CardContent className="p-0">
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                                <th className="px-4 py-2.5 font-medium">Market</th>
-                                <th className="px-4 py-2.5 font-medium">Collateral</th>
-                                <th className="px-4 py-2.5 font-medium">Borrowed</th>
-                                <th className="px-4 py-2.5 font-medium text-right">Debt</th>
-                                <th className="px-4 py-2.5 font-medium text-right">HF</th>
-                                <th className="px-4 py-2.5 font-medium text-right">Rate</th>
-                                <th className="px-4 py-2.5 font-medium text-right">LTV</th>
-                                <th className="px-4 py-2.5 font-medium text-right">Liq. Price</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {loanRows.map(({ loan, metrics }) => (
-                                <tr
-                                  key={loan.id}
-                                  onClick={() => setSelectedLoanId(loan.id)}
-                                  className={cn(
-                                    'cursor-pointer border-b border-border transition-colors hover:bg-accent/50',
-                                    loan.id === selectedLoanId && 'bg-accent',
-                                  )}
-                                >
-                                  <td className="px-4 py-3 font-medium">{loan.marketName}</td>
-                                  <td className="px-4 py-3">
-                                    {loan.supplied.map((a) => a.symbol).join(', ')}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {loan.borrowed.map((a) => a.symbol).join(' + ')}
-                                  </td>
-                                  <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                                    {fmtUSD(metrics.debt, 0)}
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    <Badge
-                                      variant={toBadgeVariant(
-                                        healthLabel(metrics.healthFactor).tone,
-                                      )}
-                                    >
-                                      {Number.isFinite(metrics.healthFactor)
-                                        ? metrics.healthFactor.toFixed(2)
-                                        : '∞'}
-                                    </Badge>
-                                  </td>
-                                  <td className="px-4 py-3 text-right tabular-nums">
-                                    {fmtPct(metrics.rBorrow)}
-                                  </td>
-                                  <td className="px-4 py-3 text-right tabular-nums">
-                                    {fmtPct(metrics.ltv)}
-                                  </td>
-                                  <td className="px-4 py-3 text-right tabular-nums">
-                                    {metrics.assetLiquidations.length === 0
-                                      ? '—'
-                                      : metrics.assetLiquidations.length === 1
-                                        ? fmtUSD(metrics.assetLiquidations[0]!.liqPrice, 2)
-                                        : metrics.assetLiquidations
-                                            .map((a) => `${a.symbol}: ${fmtUSD(a.liqPrice, 0)}`)
-                                            .join(' | ')}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ) : null}
-
-                  {vaultRows.length > 0 ? (
-                    <Card className="mt-4">
-                      <CardHeader>
-                        <CardTitle>Morpho Vault Positions</CardTitle>
-                      </CardHeader>
-                      <CardContent className="p-0">
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                                <th className="px-4 py-2.5 font-medium">Vault</th>
-                                <th className="px-4 py-2.5 font-medium">Asset</th>
-                                <th className="px-4 py-2.5 font-medium text-right">Deposited</th>
-                                <th className="px-4 py-2.5 font-medium text-right">Value</th>
-                                <th className="px-4 py-2.5 font-medium text-right">Net APY</th>
-                                <th className="px-4 py-2.5 font-medium text-right">Shares</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {vaultRows.map((vault) => (
-                                <VaultRow key={vault.id} vault={vault} />
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ) : null}
-
-                  {selectedLoan && (
-                    <p className="mt-4 text-sm text-muted-foreground">
-                      Showing details for{' '}
-                      <span className="font-semibold text-foreground">
-                        {selectedLoan.marketName} ·{' '}
-                        {selectedLoan.borrowed.map((b) => b.symbol).join(' + ')}
-                      </span>
-                    </p>
-                  )}
-
-                  <section className="mt-2 grid gap-4 [grid-template-columns:minmax(320px,0.95fr)_minmax(0,2fr)] max-[980px]:grid-cols-1">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="inline-flex items-center gap-2">
-                          Position Snapshot <Info size={16} className="text-muted-foreground" />
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="grid min-w-0 gap-1.5 text-sm">
-                          <span className="text-muted-foreground">Borrowed assets</span>
-                          <ul className="grid list-none gap-1.5">
-                            {selectedLoan?.borrowed.map((asset) => (
-                              <li
-                                key={`${asset.address}-${asset.symbol}`}
-                                className="flex justify-between gap-2.5 rounded-lg border border-border bg-accent px-3 py-2 max-[980px]:flex-col max-[980px]:items-start"
-                              >
-                                <span className="font-medium">{asset.symbol}</span>
-                                <span className="text-muted-foreground">
-                                  {fmtAmount(asset.amount)} | {fmtUSD(asset.usdValue, 0)}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        <StaticField label="Market" value={selectedLoan?.marketName ?? '—'} />
-                        <StaticField label="Debt (USD)" value={fmtUSD(computed.debt, 0)} />
-                        <Separator />
-
-                        <div className="grid min-w-0 gap-1.5 text-sm">
-                          <span className="text-muted-foreground">Supplied collateral assets</span>
-                          <ul className="grid list-none gap-1.5">
-                            {selectedLoan?.supplied.map((asset) => (
-                              <li
-                                key={`${asset.address}-${asset.symbol}`}
-                                className="flex justify-between gap-2.5 rounded-lg border border-border bg-accent px-3 py-2 max-[980px]:flex-col max-[980px]:items-start"
-                              >
-                                <span className="font-medium">{asset.symbol}</span>
-                                <span className="text-muted-foreground">
-                                  {fmtAmount(asset.amount)} | {fmtUSD(asset.usdValue, 0)}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-
-                        <StaticField
-                          label="Collateral value (USD)"
-                          value={fmtUSD(computed.collateralUSD, 0)}
-                        />
-                        <Separator />
-
-                        <TwoColumn>
-                          <StaticField label="Max LTV (weighted)" value={fmtPct(computed.ltvMax)} />
-                          <StaticField
-                            label="Liquidation threshold (weighted)"
-                            value={fmtPct(computed.lt)}
-                          />
-                        </TwoColumn>
-
-                        <Separator />
-
-                        <TwoColumn>
-                          <StaticField
-                            label="Supply APY (weighted)"
-                            value={fmtPct(computed.rSupply)}
-                          />
-                          <StaticField label="Borrow APY" value={fmtPct(computed.rBorrow)} />
-                        </TwoColumn>
-                      </CardContent>
-                    </Card>
-
-                    <div className="grid gap-4">
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="inline-flex items-center gap-2">
-                            Status
-                            <Badge variant={toBadgeVariant(status.tone)}>{status.label}</Badge>
-                            {computed.healthFactor < 1.5 ? (
-                              <AlertTriangle size={16} className="text-destructive" />
-                            ) : (
-                              <ShieldCheck size={16} className="text-positive" />
-                            )}
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent className="grid-cols-3 max-[980px]:grid-cols-1">
-                          <KpiCard
-                            title="Health Factor (HF)"
-                            value={
-                              Number.isFinite(computed.healthFactor)
-                                ? computed.healthFactor.toFixed(2)
-                                : '∞'
-                            }
-                            caption="Liquidation when HF < 1.0"
-                          />
-                          <KpiCard
-                            title="Adjusted HF"
-                            value={
-                              Number.isFinite(computed.adjustedHF)
-                                ? computed.adjustedHF.toFixed(2)
-                                : '∞'
-                            }
-                            caption="Excludes same-asset collateral (watchdog view)"
-                          />
-                          {(() => {
-                            const singleLiq = computed.assetLiquidations[0];
-                            return computed.assetLiquidations.length <= 1 ? (
-                              <KpiCard
-                                title={`Liquidation Price (${computed.primaryCollateralSymbol})`}
-                                value={
-                                  singleLiq && Number.isFinite(singleLiq.liqPrice)
-                                    ? fmtUSD(singleLiq.liqPrice, 2)
-                                    : '—'
-                                }
-                                caption={
-                                  singleLiq
-                                    ? `Price drop to liq: ${fmtPct(clamp(singleLiq.priceDropToLiq, 0, 1), 1)}`
-                                    : ''
-                                }
-                              />
-                            ) : (
-                              <div className="rounded-lg border border-border bg-accent p-3">
-                                <span className="mb-1.5 block text-xs text-muted-foreground">
-                                  Liquidation Prices
-                                </span>
-                                <ul className="grid list-none gap-1">
-                                  {computed.assetLiquidations.map((al) => (
-                                    <li
-                                      key={al.symbol}
-                                      className="flex items-center justify-between gap-2 text-sm"
-                                    >
-                                      <span className="text-muted-foreground">{al.symbol}</span>
-                                      <span className="text-right">
-                                        {Number.isFinite(al.liqPrice)
-                                          ? `${fmtUSD(al.liqPrice, 2)} (-${fmtPct(clamp(al.priceDropToLiq, 0, 1), 1)})`
-                                          : 'N/A'}
-                                      </span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            );
-                          })()}
-                          <KpiCard
-                            title="Equity"
-                            value={fmtUSD(computed.equity, 0)}
-                            caption="Collateral - Debt"
-                          />
-                        </CardContent>
-                      </Card>
-
-                      {selectedReserveTelemetry ? (
-                        <UtilizationCurveCard reserve={selectedReserveTelemetry} />
-                      ) : reserveTelemetryError ? (
-                        <Card>
-                          <CardHeader>
-                            <CardTitle>Interest Rate Model</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <p className="text-sm text-muted-foreground">{reserveTelemetryError}</p>
-                          </CardContent>
-                        </Card>
-                      ) : null}
-
-                      <BorrowRateHistoryCard
-                        currentTimeMs={now}
-                        samples={borrowRateHistory}
-                        reserve={selectedReserveTelemetry}
-                      />
-
-                      <div className="grid grid-cols-2 gap-4 max-[980px]:grid-cols-1">
-                        <Card>
-                          <CardHeader>
-                            <CardTitle>Main Metrics</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <Row
-                              label="Collateral value"
-                              value={fmtUSD(computed.collateralUSD, 0)}
-                            />
-                            <Row label="Debt" value={fmtUSD(computed.debt, 0)} />
-                            <Row label="LTV" value={fmtPct(computed.ltv)} />
-                            <Row
-                              label="Leverage (C/E)"
-                              value={
-                                Number.isFinite(computed.leverage)
-                                  ? `${computed.leverage.toFixed(2)}x`
-                                  : '∞'
-                              }
-                            />
-                            <Row
-                              label="Borrow power used"
-                              value={fmtPct(computed.borrowPowerUsed)}
-                            />
-                            <Row
-                              label="Borrow headroom"
-                              value={fmtUSD(computed.borrowHeadroom, 0)}
-                            />
-                            <Separator />
-                            <Row label="Liquidation threshold" value={fmtPct(computed.lt)} />
-                            <Row label="LTV at liquidation" value={fmtPct(computed.ltvAtLiq)} />
-                            <Row
-                              label="Collateral buffer"
-                              value={fmtUSD(computed.collateralBufferUSD, 0)}
-                            />
-                          </CardContent>
-                        </Card>
-
-                        <Card>
-                          <CardHeader>
-                            <CardTitle>Carry / Net APY</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <Row label="Supply APY" value={fmtPct(computed.rSupply)} />
-                            <Row label="Borrow APY" value={fmtPct(computed.rBorrow)} />
-                            <Separator />
-                            <Row
-                              label="Supply earnings (annual)"
-                              value={fmtUSD(computed.supplyEarnUSD, 0)}
-                            />
-                            <Row
-                              label="Borrow cost (annual)"
-                              value={fmtUSD(computed.borrowCostUSD, 0)}
-                            />
-                            <Separator />
-                            <Row
-                              label="Net earnings (annual)"
-                              value={fmtUSD(computed.netEarnUSD, 0)}
-                            />
-                            <Row
-                              label="Net APY (on equity)"
-                              value={fmtPct(computed.netAPYOnEquity)}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              Net APY is ROE: (supply - borrow) / equity.
-                            </p>
-                          </CardContent>
-                        </Card>
-                      </div>
-
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>Monitoring Checklist</CardTitle>
-                        </CardHeader>
-                        <CardContent className="grid-cols-3 max-[980px]:grid-cols-1">
-                          <ChecklistItem
-                            title="Health Factor"
-                            ok={!computed.alertHF}
-                            detail="Keep HF comfortably above 1.0; many traders target 1.7-2.5+."
-                          />
-                          <ChecklistItem
-                            title="LTV vs LT"
-                            ok={!computed.alertLTV}
-                            detail="As LTV approaches liquidation threshold, small price moves can liquidate you."
-                          />
-                          <ChecklistItem
-                            title="Rates drift"
-                            ok
-                            detail="Borrow/supply APYs are variable; net carry can flip quickly during volatility."
-                          />
-                          <ChecklistItem
-                            title="Stablecoin depeg"
-                            ok
-                            detail="USDC/USDT are usually close to $1, but depegs can distort debt value."
-                          />
-                          <ChecklistItem
-                            title="Oracle / market"
-                            ok
-                            detail="Liquidations depend on oracle price; liquidity + slippage matters in crashes."
-                          />
-                          <ChecklistItem
-                            title="Automation"
-                            ok
-                            detail="Consider alerts (HF, price, LTV) and an emergency delever playbook."
-                          />
-                        </CardContent>
-                      </Card>
-
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>Sensitivity</CardTitle>
-                        </CardHeader>
-                        <CardContent className="grid-cols-3 max-[980px]:grid-cols-1">
-                          <KpiCard
-                            title="Equity move for +/-10% price"
-                            value={
-                              Number.isFinite(computed.leverage)
-                                ? fmtPct(computed.equityMoveFor10Pct, 1)
-                                : '—'
-                            }
-                            caption="Approx = leverage x 10%"
-                          />
-                          <KpiCard
-                            title="Max borrow (by LTV)"
-                            value={fmtUSD(computed.maxBorrowByLTV, 0)}
-                            caption="Based on weighted collateral LTV"
-                          />
-                          <KpiCard
-                            title="Collateral needed at HF=1"
-                            value={fmtUSD(computed.collateralUSDAtLiq, 0)}
-                            caption="= Debt / liquidation threshold"
-                          />
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </section>
+                  <LoanPositionsTable
+                    rows={loanRows}
+                    selectedLoanId={selectedLoanId}
+                    onSelectLoan={setSelectedLoanId}
+                  />
+                  <VaultPositionsTable vaults={vaultRows} />
+                  <SelectedLoanLabel loan={selectedLoan} />
+                  <PositionDetailsSection
+                    borrowRateHistory={borrowRateHistory}
+                    computed={computed}
+                    now={now}
+                    reserveTelemetry={selectedReserveTelemetry}
+                    reserveTelemetryError={reserveTelemetryError}
+                    selectedLoan={selectedLoan}
+                  />
                 </>
               ) : (
                 <Card className="mt-4">
@@ -1096,82 +335,5 @@ export default function App() {
       </div>
       <ToastViewport toasts={toasts} />
     </ToastProvider>
-  );
-}
-
-function TwoColumn({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-2 gap-3">{children}</div>;
-}
-
-function StaticField({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="grid min-w-0 gap-1 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <p className="font-semibold">{value}</p>
-      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-3 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-semibold tabular-nums">{value}</span>
-    </div>
-  );
-}
-
-function VaultRow({ vault }: { vault: MorphoVaultPosition }) {
-  return (
-    <tr className="border-b border-border">
-      <td className="px-4 py-3 font-medium">
-        <div className="flex flex-col gap-0.5">
-          <span>{vault.vaultName}</span>
-          <span className="text-xs text-muted-foreground">{vault.vaultSymbol}</span>
-        </div>
-      </td>
-      <td className="px-4 py-3">{vault.asset.symbol}</td>
-      <td className="px-4 py-3 text-right tabular-nums">{fmtAmount(vault.totalAssets)}</td>
-      <td className="px-4 py-3 text-right font-semibold tabular-nums">
-        {fmtUSD(vault.totalAssetsUsd, 0)}
-      </td>
-      <td className="px-4 py-3 text-right tabular-nums">{fmtPct(vault.netApy)}</td>
-      <td className="px-4 py-3 text-right tabular-nums">{fmtAmount(vault.shares)}</td>
-    </tr>
-  );
-}
-
-function ChecklistItem({ title, detail, ok }: { title: string; detail: string; ok: boolean }) {
-  return (
-    <article className="rounded-lg border border-border bg-accent p-3">
-      <div className="flex items-center justify-between gap-2.5">
-        <h3 className="text-sm font-medium">{title}</h3>
-        <Badge variant={ok ? 'positive' : 'destructive'}>{ok ? 'OK' : 'Watch'}</Badge>
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
-    </article>
-  );
-}
-
-function KpiCard({
-  title,
-  value,
-  caption,
-  valueClassName,
-}: {
-  title: string;
-  value: string;
-  caption: string;
-  valueClassName?: string;
-}) {
-  return (
-    <article className="rounded-lg border border-border bg-accent p-3">
-      <p className="text-xs text-muted-foreground">{title}</p>
-      <p className={`my-1 text-2xl font-semibold tracking-tight ${valueClassName ?? ''}`}>
-        {value}
-      </p>
-      <p className="text-xs text-muted-foreground">{caption}</p>
-    </article>
   );
 }
