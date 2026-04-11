@@ -23,7 +23,7 @@ import { ToastProvider, ToastViewport } from './components/ui/toast';
 import { type ToastMessage } from './components/ui/toast-context';
 import { Card, CardContent } from './components/ui/card';
 import { WalletSearchCard } from './components/dashboard/WalletSearchCard';
-import { PortfolioSummaryCard, WalletResultCard } from './components/dashboard/SummaryCards';
+import { PortfolioSummaryCard } from './components/dashboard/SummaryCards';
 import {
   type LoanRow,
   LoanPositionsTable,
@@ -283,6 +283,8 @@ export default function App() {
           <WalletSearchCard
             error={error}
             isLoading={isLoading}
+            now={now}
+            result={result}
             wallet={wallet}
             onRefresh={handleRefresh}
             onSubmit={handleFetch}
@@ -291,8 +293,6 @@ export default function App() {
 
           {result ? (
             <>
-              <WalletResultCard result={result} now={now} />
-
               {hasAnyPositions ? (
                 <>
                   {portfolio ? <PortfolioSummaryCard portfolio={portfolio} /> : null}

@@ -1,29 +1,9 @@
-import { healthLabel, type FetchState, type PortfolioSummary } from '@aave-monitor/core';
+import { healthLabel, type PortfolioSummary } from '@aave-monitor/core';
 import { Badge } from '../ui/badge';
 import { Card, CardContent } from '../ui/card';
 import { MetricTooltip } from '../MetricTooltip';
 import { cn } from '../../lib/utils';
-import { fmtPct, fmtTimeAgo, fmtUSD, toBadgeVariant } from '../../lib/formatters';
-
-export function WalletResultCard({ result, now }: { result: FetchState; now: number }) {
-  return (
-    <Card className="mt-4">
-      <CardContent className="gap-1 pt-5 pb-5">
-        <p className="text-xs text-muted-foreground">Wallet</p>
-        <p className="break-all font-mono text-sm">{result.wallet}</p>
-        <p className="text-xs text-muted-foreground">
-          Found {result.loans.length + result.vaults.length} active position(s)
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {result.loans.length} loan position(s) · {result.vaults.length} vault position(s)
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Last updated: {fmtTimeAgo(result.lastUpdated, now)}
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
+import { fmtPct, fmtUSD, toBadgeVariant } from '../../lib/formatters';
 
 export function PortfolioSummaryCard({ portfolio }: { portfolio: PortfolioSummary }) {
   return (
