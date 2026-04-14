@@ -79,3 +79,35 @@ test('formatStatusMessage reports repay coverage from wallet balances matching b
   const message = formatStatusMessage(status, [...zones]);
   assert.match(message, /Repay coverage: <b>\$250<\/b> \(25\.00%\)/);
 });
+
+test('formatStatusMessage shows rescue-adjusted HF when wallet can repay part of the debt', () => {
+  const status: MonitorStatus = {
+    running: true,
+    states: [
+      {
+        loanId: 'loan-1',
+        marketName: 'proto_mainnet_v3',
+        wallet: '0x1111111111111111111111111111111111117405',
+        healthFactor: 1.6,
+        adjustedHF: 2.1333333333333333,
+        debtUsd: 1000,
+        collateralUsd: 2000,
+        maxBorrowByLtvUsd: 1500,
+        equityUsd: 1000,
+        netEarnUsd: 0,
+        currentZone: { name: 'watch', label: 'WATCH', emoji: '🟡', action: 'Monitor closely' },
+        lastNotifiedZone: null,
+        lastNotifiedAt: 0,
+        consecutiveChecks: 1,
+        stuckSince: null,
+      },
+    ],
+    totalWalletBorrowedAssetUsd: 250,
+    lastPollAt: null,
+    lastError: null,
+    watchdogLog: [],
+  };
+
+  const message = formatStatusMessage(status, [...zones]);
+  assert.match(message, /HF: <b>1\.60<\/b> · Adj: <b>2\.13<\/b> · Zone: WATCH/);
+});

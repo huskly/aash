@@ -19,6 +19,7 @@ import type { AlertConfig } from './storage.js';
 import type { TelegramClient } from './telegram.js';
 import { Watchdog, type WatchdogLogEntry } from './watchdog.js';
 import { logger } from './logger.js';
+import { computeRescueAdjustedHF } from './rescueMetrics.js';
 
 export type LoanAlertState = {
   loanId: string;
@@ -232,6 +233,8 @@ export class Monitor {
 
     for (const loan of loans) {
       const metrics = computeLoanMetrics(loan);
+      const adjustedHF = computeRescueAdjustedHF(loan, walletBorrowedAssetBalances);
+      const notificationMetrics = { ...metrics, adjustedHF };
       const zone = classifyZone(metrics.healthFactor, this.hydrateZones(config.zones));
       const stateKey = `${address}-${loan.id}`;
       activeStateKeys.add(stateKey);
@@ -260,7 +263,7 @@ export class Monitor {
           marketName: loan.marketName,
           wallet: address,
           healthFactor: metrics.healthFactor,
-          adjustedHF: metrics.adjustedHF,
+          adjustedHF,
           debtUsd: metrics.debt,
           collateralUsd: metrics.collateralUSD,
           maxBorrowByLtvUsd: metrics.maxBorrowByLTV,
@@ -278,7 +281,7 @@ export class Monitor {
       const previousZone = existing.currentZone;
       existing.marketName = loan.marketName;
       existing.healthFactor = metrics.healthFactor;
-      existing.adjustedHF = metrics.adjustedHF;
+      existing.adjustedHF = adjustedHF;
       existing.debtUsd = metrics.debt;
       existing.collateralUsd = metrics.collateralUSD;
       existing.maxBorrowByLtvUsd = metrics.maxBorrowByLTV;
@@ -289,7 +292,7 @@ export class Monitor {
       if (zone.name !== 'safe' && existing.stuckSince) {
         reminderDigestEntries.push({
           state: existing,
-          message: this.formatReminder(loan, metrics, zone, now - existing.stuckSince),
+          message: this.formatReminder(loan, notificationMetrics, zone, now - existing.stuckSince),
         });
       }
 
@@ -320,7 +323,7 @@ export class Monitor {
         if (chatId && (shouldNotify || isCritical)) {
           pendingNotifications.push({
             kind: 'transition',
-            message: this.formatZoneTransition(loan, metrics, zone, previousZone),
+            message: this.formatZoneTransition(loan, notificationMetrics, zone, previousZone),
           });
           existing.lastNotifiedZone = zone.name;
           existing.lastNotifiedAt = now;
@@ -331,12 +334,12 @@ export class Monitor {
           if (zone.name === 'safe') {
             pendingNotifications.push({
               kind: 'all-clear',
-              message: this.formatAllClear(loan, metrics),
+              message: this.formatAllClear(loan, notificationMetrics),
             });
           } else {
             pendingNotifications.push({
               kind: 'recovery',
-              message: this.formatRecovery(loan, metrics, zone, previousZone),
+              message: this.formatRecovery(loan, notificationMetrics, zone, previousZone),
             });
           }
           existing.lastNotifiedZone = zone.name;

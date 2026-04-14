@@ -44,6 +44,7 @@ Backend server notes:
 - `POST /api/status/refresh` forces an immediate monitor recomputation and returns fresh `/api/status` payload.
 - `GET /api/reserves/telemetry?market=<market>&asset=<address>&symbol=<optional>` returns live on-chain reserve utilization and interest-rate-strategy parameters for the selected borrowed asset.
 - Telegram `/status` includes portfolio average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and repay coverage (USD and %) alongside per-loan health factors. Telegram alerts include per-asset liquidation prices for each collateral asset, and multiple loan alerts for the same wallet are grouped into a single Telegram message per poll.
+- Telegram per-loan `Adjusted HF` in server status/alerts is the projected post-rescue HF after repaying with the wallet's full balance of matching debt tokens, capped by that loan's outstanding debt.
 - Telegram `/status` renders each loan row using the human-readable market name (`marketName`), so Morpho entries show labels like `morpho_cbBTC_USDC` instead of the raw `uniqueKey` / address-like loan ID.
 - Telegram `/status` includes `Last updated` with absolute timestamp + relative time (e.g. `3 minutes ago`).
 - Telegram command metadata (`/status`, `/refresh`, `/watchdog`, `/help`) is synced on server startup via `setMyCommands`, so Telegram slash-command suggestions stay current.

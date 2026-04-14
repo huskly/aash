@@ -174,6 +174,7 @@ After each push to `main`, the workflow builds the app and publishes `dist` to G
 A backend monitoring service can poll your positions and send Telegram alerts when health factor zones change (e.g. Safe → Comfort → Watch → Alert → Action → Critical). When multiple loans for the same wallet trigger during a poll, they are grouped into one Telegram message instead of being sent separately. See **[docs/telegram-setup.md](docs/telegram-setup.md)** for full setup instructions.
 On server startup, Telegram command metadata is synced with `setMyCommands`, so the in-app slash-command menu matches the backend command handlers.
 The Telegram `/status` command includes a loan-focused portfolio summary with average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and repay coverage (USD and %).
+Per-loan `Adj` in Telegram reflects the projected HF after repaying with the full wallet balance of matching debt tokens, capped by that loan's debt.
 Each `/status` loan row uses the human-readable market name, so Morpho positions display labels like `morpho_cbBTC_USDC` instead of raw market IDs.
 The `/status` footer shows `Last updated` with both an absolute timestamp and relative time (e.g. `3 minutes ago`).
 Reminder alerts include a human-readable elapsed duration label (e.g. `2h 40m ago`).

@@ -311,6 +311,86 @@ test('wallet reminder digest includes all non-safe loans when any loan is due', 
   }
 });
 
+test('monitor state uses wallet debt-token balances to project rescue-adjusted HF', async () => {
+  const telegram = {
+    sendMessage: async () => true,
+  } as unknown as TelegramClient;
+
+  const monitor = new Monitor(telegram, createConfig, undefined, undefined, RPC_URL, undefined);
+  (monitor.watchdog as { evaluate: (loan: unknown, wallet: string) => Promise<void> }).evaluate =
+    async () => {};
+
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url);
+
+      if (href.includes('coingecko.com/api/v3/simple/price')) {
+        return new Response(
+          JSON.stringify({
+            ethereum: { usd: 2000 },
+            'usd-coin': { usd: 1 },
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (href === RPC_URL) {
+        const requests = JSON.parse(String(init?.body)) as Array<{ id: number }>;
+        return new Response(
+          JSON.stringify(
+            requests.map((request) => ({
+              id: request.id,
+              result: request.id === 0 ? '0xee6b280' : '0x0',
+            })),
+          ),
+          { status: 200 },
+        );
+      }
+
+      if (href.includes('api.morpho.org/graphql')) {
+        return new Response(JSON.stringify({ data: { userByAddress: { marketPositions: [] } } }), {
+          status: 200,
+        });
+      }
+
+      if (
+        href.includes('aave/protocol-v3') ||
+        href.includes('Cd2gEDVeqnjBn1hSeqFMitw8Q1iiyV9FYUZkLNRcL87g')
+      ) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              userReserves: createAaveReserves(1000),
+            },
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (href.includes('5vxMbXRhG1oQr55MWC5j6qg78waWujx1wjeuEWDA6j3')) {
+        return new Response(JSON.stringify({ data: { userReserves: [] } }), { status: 200 });
+      }
+
+      throw new Error(`Unhandled fetch URL: ${href}`);
+    }) as typeof fetch;
+
+    await (monitor as unknown as { poll: (options?: { notify: boolean }) => Promise<void> }).poll({
+      notify: false,
+    });
+
+    const state = monitor
+      .getStatus()
+      .states.find((entry) => entry.marketName === 'proto_mainnet_v3');
+    assert.ok(state);
+    assert.equal(state.healthFactor, 1.6);
+    assert.equal(state.adjustedHF, 1600 / 750);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('monitor logs normalize mixed-case symbols and reuse per-loan usdPrice values', async () => {
   const telegram = {
     sendMessage: async () => true,
