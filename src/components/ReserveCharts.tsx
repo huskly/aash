@@ -248,7 +248,10 @@ export function MorphoIrmCard({
   }, [supplyApy, borrowRate, utilizationRate]);
 
   const { borrowCurvePath, supplyCurvePath, maxRate } = useMemo(() => {
-    const samples = Array.from({ length: MORPHO_IRM_SAMPLES + 1 }, (_, i) => i / MORPHO_IRM_SAMPLES);
+    const samples = Array.from(
+      { length: MORPHO_IRM_SAMPLES + 1 },
+      (_, i) => i / MORPHO_IRM_SAMPLES,
+    );
     const chartWidth = SVG_WIDTH - PADDING.left - PADDING.right;
     const chartHeight = SVG_HEIGHT - PADDING.top - PADDING.bottom;
 
@@ -268,9 +271,7 @@ export function MorphoIrmCard({
     return {
       borrowCurvePath: toPath((u) => morphoBorrowRate(rateAtTarget, u)),
       supplyCurvePath:
-        feeFactor != null
-          ? toPath((u) => morphoBorrowRate(rateAtTarget, u) * u * feeFactor)
-          : null,
+        feeFactor != null ? toPath((u) => morphoBorrowRate(rateAtTarget, u) * u * feeFactor) : null,
       maxRate: max,
     };
   }, [rateAtTarget, feeFactor]);
@@ -349,7 +350,13 @@ export function MorphoIrmCard({
           )}
 
           {/* Borrow curve */}
-          <path d={borrowCurvePath} fill="none" stroke="#e255bc" strokeWidth="3" strokeLinecap="round" />
+          <path
+            d={borrowCurvePath}
+            fill="none"
+            stroke="#e255bc"
+            strokeWidth="3"
+            strokeLinecap="round"
+          />
 
           {/* Target utilization dashed line */}
           <line
@@ -371,7 +378,14 @@ export function MorphoIrmCard({
           />
 
           {/* Current borrow rate dot */}
-          <circle cx={currentX} cy={currentBorrowY} r="5" fill="#e255bc" stroke="#0a1220" strokeWidth="2" />
+          <circle
+            cx={currentX}
+            cy={currentBorrowY}
+            r="5"
+            fill="#e255bc"
+            stroke="#0a1220"
+            strokeWidth="2"
+          />
 
           <text
             x={Math.min(currentX + 8, SVG_WIDTH - PADDING.right - 8)}
