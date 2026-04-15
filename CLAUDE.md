@@ -87,6 +87,7 @@ Frontend notes:
 - The dashboard's `Total Assets`, `Net worth`, `Supply APY`, `Net earnings`, and `Net APY` include Morpho vault deposits; `HF`, `Borrow power used`, and `Repay coverage` remain loan-only.
 - Top-level portfolio metrics use hover/focus tooltips to explain their calculation in one sentence.
 - The loan positions table is sortable. It defaults to USD debt descending and supports sorting by market, collateral, borrowed asset, HF, rate, LTV, and liquidation price.
+- The loan positions table includes an `Accrued Int.` column (sortable) sourced from protocol position APIs when available (currently Morpho-only and API-dependent).
 - Portfolio `Net borrow cost` displays the gross annual loan borrow interest cost before supply earnings or Morpho vault income offsets.
 - The portfolio card labeled `Repay coverage` is based on wallet-held balances of tokens that also appear in the loan's borrowed asset set; it does not include unrelated wallet assets or vault deposits.
 - The utilization curve and borrow APR history charts depend on the Express API server for on-chain reserve telemetry. Without `yarn dev:server` (or the unified Docker/server runtime), those charts fall back to an unavailable message.

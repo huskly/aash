@@ -80,6 +80,8 @@ export type LoanPosition = {
   supplied: AssetPosition[];
   totalSuppliedUsd: number;
   totalBorrowedUsd: number;
+  /** Borrow interest accrued in USD for this position when available from the upstream protocol API. */
+  accruedBorrowInterestUsd?: number;
   morphoMarketParams?: MorphoMarketParams;
   /** Current market utilization rate (0–1). Populated for Morpho markets; undefined for Aave. */
   utilizationRate?: number;

@@ -21,6 +21,7 @@ type LoanSortKey =
   | 'collateral'
   | 'borrowed'
   | 'debt'
+  | 'accruedBorrowInterest'
   | 'healthFactor'
   | 'rate'
   | 'ltv'
@@ -43,6 +44,12 @@ const loanSortColumns = [
   { key: 'collateral', label: 'Collateral', defaultDirection: 'asc' },
   { key: 'borrowed', label: 'Borrowed', defaultDirection: 'asc' },
   { key: 'debt', label: 'Debt', align: 'right', defaultDirection: 'desc' },
+  {
+    key: 'accruedBorrowInterest',
+    label: 'Accrued Int.',
+    align: 'right',
+    defaultDirection: 'desc',
+  },
   { key: 'healthFactor', label: 'HF', align: 'right', defaultDirection: 'asc' },
   { key: 'rate', label: 'Rate', align: 'right', defaultDirection: 'desc' },
   { key: 'ltv', label: 'LTV', align: 'right', defaultDirection: 'desc' },
@@ -61,6 +68,8 @@ function getLoanSortValue(row: LoanRow, key: LoanSortKey): string | number {
       return loan.borrowed.map((asset) => asset.symbol).join(' + ');
     case 'debt':
       return metrics.debt;
+    case 'accruedBorrowInterest':
+      return row.loan.accruedBorrowInterestUsd ?? Number.NaN;
     case 'healthFactor':
       return metrics.healthFactor;
     case 'rate':
@@ -204,6 +213,11 @@ export function LoanPositionsTable({
                   <td className="px-4 py-3">{loan.borrowed.map((a) => a.symbol).join(' + ')}</td>
                   <td className="px-4 py-3 text-right font-semibold tabular-nums">
                     {fmtUSD(metrics.debt, 0)}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums">
+                    {loan.accruedBorrowInterestUsd == null
+                      ? '—'
+                      : fmtUSD(loan.accruedBorrowInterestUsd, 2)}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Badge variant={toBadgeVariant(healthLabel(metrics.healthFactor).tone)}>

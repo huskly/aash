@@ -63,6 +63,7 @@ function samplePosition(overrides?: Partial<RawMorphoMarketPosition>): RawMorpho
     },
     borrowAssets: '500000000', // 500 USDC (6 decimals)
     borrowAssetsUsd: 500,
+    accruedBorrowInterestUsd: 12.34,
     supplyAssets: '0',
     supplyAssetsUsd: 0,
     collateral: '1000000000000000000', // 1 WETH (18 decimals)
@@ -178,6 +179,7 @@ describe('fetchFromMorphoApi', () => {
     assert.equal(loan.morphoMarketParams.irm, '0x0000000000000000000000000000000000000002');
     assert.equal(loan.morphoMarketParams.lltv, '860000000000000000');
     assert.equal(loan.marketSupplyApy, 0.0305);
+    assert.equal(loan.accruedBorrowInterestUsd, 12.34);
     assert.equal(callCount, 1);
   });
 
@@ -271,6 +273,7 @@ describe('fetchFromMorphoApi', () => {
       state: {
         borrowAssets: pos.borrowAssets!,
         borrowAssetsUsd: pos.borrowAssetsUsd!,
+        accruedBorrowInterestUsd: pos.accruedBorrowInterestUsd!,
         supplyAssets: pos.supplyAssets!,
         supplyAssetsUsd: pos.supplyAssetsUsd!,
         collateral: pos.collateral!,
@@ -293,6 +296,7 @@ describe('fetchFromMorphoApi', () => {
     assert.equal(loans[0].morphoMarketParams?.oracle, '0x0000000000000000000000000000000000000001');
     assert.equal(loans[0].borrowed[0].usdValue, 500);
     assert.equal(loans[0].supplied[0].usdValue, 3000);
+    assert.equal(loans[0].accruedBorrowInterestUsd, 12.34);
     assert.ok(queries.length >= 1);
     assert.doesNotMatch(queries[0]!, /\buniqueKey\b/);
     assert.doesNotMatch(queries[0]!, /\boracleAddress\b/);

@@ -42,6 +42,7 @@ A React + Vite dashboard that auto-loads Aave loans, Morpho Blue market position
   - Liquidation price (primary-collateral approximation)
   - LTV, leverage, borrow headroom
   - Carry / Net APY summary, including loan net earnings offset by Morpho vault net income and gross annual borrow cost
+  - Loan table `Accrued Int.` column for borrowed positions when provided by the upstream protocol API (currently populated for Morpho positions when available)
   - Separate Morpho vault table with deposited asset amount, USD value, net APY, and shares
   - Aave interest-rate model chart for the selected borrowed asset, including current utilization and the reserve kink
   - Borrow APR history chart for the selected borrowed asset, built from locally stored reserve telemetry samples

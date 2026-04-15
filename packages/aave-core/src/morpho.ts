@@ -37,6 +37,8 @@ type MorphoHistoricalState = {
 type MorphoMarketPositionState = {
   borrowAssets: string;
   borrowAssetsUsd: number | null;
+  accruedBorrowInterest?: string | null;
+  accruedBorrowInterestUsd?: number | null;
   supplyAssets: string;
   supplyAssetsUsd: number | null;
   collateral: string;
@@ -57,6 +59,8 @@ export type RawMorphoMarketPosition = {
   state?: MorphoMarketPositionState;
   borrowAssets?: string;
   borrowAssetsUsd?: number | null;
+  accruedBorrowInterest?: string | null;
+  accruedBorrowInterestUsd?: number | null;
   supplyAssets?: string;
   supplyAssetsUsd?: number | null;
   collateral?: string;
@@ -153,6 +157,8 @@ const MORPHO_POSITIONS_QUERY = `
         state {
           borrowAssets
           borrowAssetsUsd
+          accruedBorrowInterest
+          accruedBorrowInterestUsd
           supplyAssets
           supplyAssetsUsd
           collateral
@@ -272,6 +278,9 @@ function positionState(pos: RawMorphoMarketPosition): MorphoMarketPositionState 
   return {
     borrowAssets: pos.state?.borrowAssets ?? pos.borrowAssets ?? '0',
     borrowAssetsUsd: pos.state?.borrowAssetsUsd ?? pos.borrowAssetsUsd ?? null,
+    accruedBorrowInterest: pos.state?.accruedBorrowInterest ?? pos.accruedBorrowInterest ?? null,
+    accruedBorrowInterestUsd:
+      pos.state?.accruedBorrowInterestUsd ?? pos.accruedBorrowInterestUsd ?? null,
     supplyAssets: pos.state?.supplyAssets ?? pos.supplyAssets ?? '0',
     supplyAssetsUsd: pos.state?.supplyAssetsUsd ?? pos.supplyAssetsUsd ?? null,
     collateral: pos.state?.collateral ?? pos.collateral ?? '0',
@@ -360,6 +369,7 @@ function buildMorphoMarketLoans(positions: RawMorphoMarketPosition[]): LoanPosit
     const borrowed = borrow ? [borrow] : [];
     const totalSuppliedUsd = supplied.reduce((sum, a) => sum + a.usdValue, 0);
     const totalBorrowedUsd = borrowed.reduce((sum, a) => sum + a.usdValue, 0);
+    const accruedBorrowInterestUsd = positionState(pos).accruedBorrowInterestUsd ?? undefined;
 
     if (totalSuppliedUsd < MIN_POSITION_USD && totalBorrowedUsd < MIN_POSITION_USD) return [];
 
@@ -386,6 +396,7 @@ function buildMorphoMarketLoans(positions: RawMorphoMarketPosition[]): LoanPosit
         supplied,
         totalSuppliedUsd,
         totalBorrowedUsd,
+        accruedBorrowInterestUsd,
         morphoMarketParams,
         utilizationRate: pos.market.state.utilization,
         marketSupplyApy: pos.market.state.supplyApy,
