@@ -16,6 +16,7 @@ A React + Vite dashboard that auto-loads Aave loans, Morpho Blue market position
 - Wallet-only input UX.
 - Wallet details auto-fetch on load when valid.
 - Last successfully loaded wallet is saved in browser `localStorage` and auto-used on reload when query params are absent.
+- The summary card eye toggle can blur `Total Debt` and `Total Assets`, and that privacy preference is saved in browser `localStorage`.
 - Manual `Refresh` button to reload the current dashboard data on demand.
 - Automatic refresh every 120 seconds after a wallet is loaded.
 - Multi-market support:
@@ -42,6 +43,7 @@ A React + Vite dashboard that auto-loads Aave loans, Morpho Blue market position
   - Liquidation price (primary-collateral approximation)
   - LTV, leverage, borrow headroom
   - Carry / Net APY summary, including loan net earnings offset by Morpho vault net income and gross annual borrow cost
+  - Top portfolio card `Accrued interest` metric that sums all outstanding loans' `Accrued Int.` values when upstream APIs provide them
   - Loan table `Accrued Int.` column for borrowed positions when provided by the upstream protocol API (currently populated for Morpho positions when available)
   - Separate Morpho vault table with deposited asset amount, USD value, net APY, and shares
   - Aave interest-rate model chart for the selected borrowed asset, including current utilization and the reserve kink

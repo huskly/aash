@@ -279,6 +279,10 @@ export function computePortfolioSummary(
 
   const metrics = loans.map((loan) => computeLoanMetrics(loan));
   const totalDebt = metrics.reduce((sum, item) => sum + item.debt, 0);
+  const totalAccruedBorrowInterest = loans.reduce(
+    (sum, loan) => sum + (loan.accruedBorrowInterestUsd ?? 0),
+    0,
+  );
   const totalRiskCollateral = metrics.reduce((sum, item) => sum + item.collateralUSD, 0);
   const totalVaultAssets = vaults.reduce((sum, vault) => sum + vault.totalAssetsUsd, 0);
   const totalAssets = totalRiskCollateral + totalVaultAssets;
@@ -320,6 +324,7 @@ export function computePortfolioSummary(
     vaultCount: vaults.length,
     positionCount: loans.length + vaults.length,
     totalDebt,
+    totalAccruedBorrowInterest,
     totalRiskCollateral,
     totalVaultAssets,
     totalAssets,

@@ -1,22 +1,83 @@
 import { healthLabel, type PortfolioSummary } from '@aave-monitor/core';
+import { Eye, EyeOff } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
 import { Card, CardContent } from '../ui/card';
 import { MetricTooltip } from '../MetricTooltip';
 import { cn } from '../../lib/utils';
 import { fmtPct, fmtUSD, toBadgeVariant } from '../../lib/formatters';
 
+const TOP_LEVEL_PRIVACY_STORAGE_KEY = 'aave-monitor:hide-top-level-values';
+
+function getInitialHideTopLevelValues(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  try {
+    return window.localStorage.getItem(TOP_LEVEL_PRIVACY_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export function PortfolioSummaryCard({ portfolio }: { portfolio: PortfolioSummary }) {
+  const [hideTopLevelValues, setHideTopLevelValues] = useState(getInitialHideTopLevelValues);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(TOP_LEVEL_PRIVACY_STORAGE_KEY, String(hideTopLevelValues));
+    } catch {
+      // Ignore storage errors so the dashboard still works when storage is unavailable.
+    }
+  }, [hideTopLevelValues]);
+
   return (
     <Card className="mt-4">
       <CardContent className="pt-6">
         <div className="flex flex-wrap items-baseline justify-between gap-x-8 gap-y-4">
-          <div>
-            <MetricTooltip description="Total debt is the sum of borrowed USD value across all active loan positions.">
-              <p className="text-xs text-muted-foreground">Total Debt</p>
-              <p className="text-4xl font-bold tracking-tight tabular-nums">
-                {fmtUSD(portfolio.totalDebt, 0)}
-              </p>
+          <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+            <div>
+              <MetricTooltip description="Total debt is the sum of borrowed USD value across all active loan positions.">
+                <p className="text-xs text-muted-foreground">Total Debt</p>
+                <p
+                  className={cn(
+                    'text-4xl font-bold tracking-tight tabular-nums transition-[filter] duration-200',
+                    hideTopLevelValues && 'select-none blur-sm',
+                  )}
+                  aria-label={hideTopLevelValues ? 'Total Debt hidden' : undefined}
+                >
+                  {fmtUSD(portfolio.totalDebt, 0)}
+                </p>
+              </MetricTooltip>
+            </div>
+            <MetricTooltip
+              description="Total assets are risk collateral from loan positions plus USD value held in Morpho vault deposits."
+              className="text-left"
+            >
+              <div>
+                <p className="text-xs text-muted-foreground">Total Assets</p>
+                <p
+                  className={cn(
+                    'text-xl font-semibold tabular-nums transition-[filter] duration-200',
+                    hideTopLevelValues && 'select-none blur-sm',
+                  )}
+                  aria-label={hideTopLevelValues ? 'Total Assets hidden' : undefined}
+                >
+                  {fmtUSD(portfolio.totalAssets, 0)}
+                </p>
+              </div>
             </MetricTooltip>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground"
+              onClick={() => setHideTopLevelValues((currentValue) => !currentValue)}
+              aria-label={hideTopLevelValues ? 'Show top-level amounts' : 'Hide top-level amounts'}
+              aria-pressed={hideTopLevelValues}
+              title={hideTopLevelValues ? 'Show top-level amounts' : 'Hide top-level amounts'}
+            >
+              {hideTopLevelValues ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </Button>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <MetricTooltip description="HF is the average of finite per-loan health factors, with each loan calculated as risk collateral times liquidation threshold divided by debt.">
@@ -43,17 +104,6 @@ export function PortfolioSummaryCard({ portfolio }: { portfolio: PortfolioSummar
               >
                 Net APY {fmtPct(portfolio.portfolioNetApy)}
               </Badge>
-            </MetricTooltip>
-            <MetricTooltip
-              description="Total assets are risk collateral from loan positions plus USD value held in Morpho vault deposits."
-              className="text-right"
-            >
-              <div>
-                <p className="text-xs text-muted-foreground">Total Assets</p>
-                <p className="text-xl font-semibold tabular-nums">
-                  {fmtUSD(portfolio.totalAssets, 0)}
-                </p>
-              </div>
             </MetricTooltip>
           </div>
         </div>
@@ -82,6 +132,11 @@ export function PortfolioSummaryCard({ portfolio }: { portfolio: PortfolioSummar
             description="Net borrow cost is the gross annual borrow interest cost across loan positions before supply or vault income offsets."
             label="Net borrow cost"
             value={`${fmtUSD(portfolio.totalBorrowCost, 0)}/yr`}
+          />
+          <PortfolioMetric
+            description="Accrued interest is the sum of outstanding loan accrued interest reported by the upstream protocol APIs, where available."
+            label="Accrued interest"
+            value={fmtUSD(portfolio.totalAccruedBorrowInterest, 2)}
           />
           <PortfolioMetric
             description="Borrow power used is total debt divided by the sum of each loan's collateral value times its weighted max LTV."

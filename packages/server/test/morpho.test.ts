@@ -588,7 +588,7 @@ describe('computePortfolioSummary with Morpho vaults', () => {
     };
 
     const summary = computePortfolioSummary(
-      [loan],
+      [{ ...loan, accruedBorrowInterestUsd: 12.34 }],
       [vault],
       new Map([['0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', 250]]),
     );
@@ -600,6 +600,7 @@ describe('computePortfolioSummary with Morpho vaults', () => {
     assert.equal(summary.totalVaultAssets, 2500);
     assert.equal(summary.totalAssets, 5500);
     assert.equal(summary.totalDebt, 500);
+    assert.equal(summary.totalAccruedBorrowInterest, 12.34);
     assert.equal(summary.totalNetWorth, 5000);
     assert.ok(Math.abs(summary.averageHealthFactor - 5.16) < 0.01);
     assert.ok(Math.abs(summary.borrowPowerUsed - 500 / (3000 * 0.86)) < 0.0001);
@@ -648,6 +649,7 @@ describe('computePortfolioSummary with Morpho vaults', () => {
     assert.equal(summary.totalAssets, 2500);
     assert.equal(summary.totalNetWorth, 2500);
     assert.equal(summary.totalDebt, 0);
+    assert.equal(summary.totalAccruedBorrowInterest, 0);
     assert.equal(summary.totalVaultAssets, 2500);
     assert.equal(summary.averageHealthFactor, Infinity);
     assert.equal(summary.borrowPowerUsed, 0);

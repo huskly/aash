@@ -136,6 +136,7 @@ export type PortfolioSummary = {
   vaultCount: number;
   positionCount: number;
   totalDebt: number;
+  totalAccruedBorrowInterest: number;
   totalRiskCollateral: number;
   totalVaultAssets: number;
   totalAssets: number;
