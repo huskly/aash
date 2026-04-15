@@ -63,7 +63,7 @@ function samplePosition(overrides?: Partial<RawMorphoMarketPosition>): RawMorpho
     },
     borrowAssets: '500000000', // 500 USDC (6 decimals)
     borrowAssetsUsd: 500,
-    accruedBorrowInterestUsd: 12.34,
+    borrowPnlUsd: 12.34,
     supplyAssets: '0',
     supplyAssetsUsd: 0,
     collateral: '1000000000000000000', // 1 WETH (18 decimals)
@@ -130,8 +130,10 @@ describe('fetchFromMorphoApi', () => {
   it('parses a position into a LoanPosition', async () => {
     const mockResponse = makeMorphoApiResponse([samplePosition()]);
     let callCount = 0;
-    globalThis.fetch = async () => {
+    const queries: string[] = [];
+    globalThis.fetch = async (_url, init) => {
       callCount += 1;
+      queries.push(String(JSON.parse(String(init?.body)).query));
       return new Response(JSON.stringify(mockResponse), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -181,6 +183,9 @@ describe('fetchFromMorphoApi', () => {
     assert.equal(loan.marketSupplyApy, 0.0305);
     assert.equal(loan.accruedBorrowInterestUsd, 12.34);
     assert.equal(callCount, 1);
+    assert.ok(queries.length >= 1);
+    assert.match(queries[0]!, /\bborrowPnl\b/);
+    assert.match(queries[0]!, /\bborrowPnlUsd\b/);
   });
 
   it('filters out dust positions', async () => {
@@ -273,7 +278,7 @@ describe('fetchFromMorphoApi', () => {
       state: {
         borrowAssets: pos.borrowAssets!,
         borrowAssetsUsd: pos.borrowAssetsUsd!,
-        accruedBorrowInterestUsd: pos.accruedBorrowInterestUsd!,
+        borrowPnlUsd: pos.borrowPnlUsd!,
         supplyAssets: pos.supplyAssets!,
         supplyAssetsUsd: pos.supplyAssetsUsd!,
         collateral: pos.collateral!,
@@ -301,6 +306,8 @@ describe('fetchFromMorphoApi', () => {
     assert.doesNotMatch(queries[0]!, /\buniqueKey\b/);
     assert.doesNotMatch(queries[0]!, /\boracleAddress\b/);
     assert.doesNotMatch(queries[0]!, /\bpriceUsd\b/);
+    assert.match(queries[0]!, /\bborrowPnl\b/);
+    assert.match(queries[0]!, /\bborrowPnlUsd\b/);
   });
 
   it('throws on API error', async () => {
