@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, Plus, Send, Settings, Trash2, X } from 'lucide-react';
 import {
   DEFAULT_POLLING_CONFIG,
+  DEFAULT_UTILIZATION_CONFIG,
   DEFAULT_WATCHDOG_CONFIG,
   DEFAULT_ZONES,
   type PollingConfig,
+  type UtilizationConfig,
   type WatchdogConfig,
   type Zone,
 } from '@aave-monitor/core';
@@ -34,6 +36,7 @@ type AlertConfig = {
   polling: PollingConfig;
   zones: ZoneConfig[];
   watchdog: WatchdogConfig;
+  utilization: UtilizationConfig;
 };
 
 const DEFAULT_ZONE_CONFIG: ZoneConfig[] = DEFAULT_ZONES.map(({ name, minHF, maxHF }) => ({
@@ -139,6 +142,10 @@ function normalizeConfig(config: Partial<AlertConfig> | null | undefined): Alert
       ...DEFAULT_WATCHDOG_CONFIG,
       ...(config?.watchdog ?? {}),
     },
+    utilization: {
+      ...DEFAULT_UTILIZATION_CONFIG,
+      ...(config?.utilization ?? {}),
+    },
   };
 }
 
@@ -169,6 +176,7 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
   const [showZones, setShowZones] = useState(false);
   const [showPolling, setShowPolling] = useState(false);
   const [showWatchdog, setShowWatchdog] = useState(false);
+  const [showUtilization, setShowUtilization] = useState(false);
   const [showNotificationSettings, setShowNotificationSettings] = useState(false);
   const [newWalletAddress, setNewWalletAddress] = useState('');
   const [newWalletLabel, setNewWalletLabel] = useState('');
@@ -721,6 +729,104 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                           void saveConfig(updated);
                         }}
                         className="w-[120px]"
+                      />
+                    </label>
+                  </div>
+                ) : null}
+              </section>
+
+              <Separator />
+
+              <section>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 text-left text-sm font-semibold"
+                  onClick={() => setShowUtilization(!showUtilization)}
+                >
+                  {showUtilization ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  Utilization Alerts
+                </button>
+                {showUtilization ? (
+                  <div className="mt-3 grid gap-3">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={config.utilization.enabled}
+                        onChange={() => {
+                          const updated = {
+                            ...config,
+                            utilization: {
+                              ...config.utilization,
+                              enabled: !config.utilization.enabled,
+                            },
+                          };
+                          void saveConfig(updated);
+                        }}
+                        className="accent-primary"
+                      />
+                      Enable utilization alerts
+                    </label>
+
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Default threshold (%)</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={Math.round(config.utilization.defaultThreshold * 100)}
+                        onChange={(e) => {
+                          const updated = {
+                            ...config,
+                            utilization: {
+                              ...config.utilization,
+                              defaultThreshold: Number(e.target.value) / 100,
+                            },
+                          };
+                          setConfig(updated);
+                        }}
+                        onBlur={(e) => {
+                          const updated = {
+                            ...config,
+                            utilization: {
+                              ...config.utilization,
+                              defaultThreshold: Number(e.target.value) / 100,
+                            },
+                          };
+                          void saveConfig(updated);
+                        }}
+                        className="w-[100px]"
+                      />
+                    </label>
+
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Alert cooldown (minutes)</span>
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={Math.round(config.utilization.cooldownMs / 60_000)}
+                        onChange={(e) => {
+                          const updated = {
+                            ...config,
+                            utilization: {
+                              ...config.utilization,
+                              cooldownMs: Number(e.target.value) * 60_000,
+                            },
+                          };
+                          setConfig(updated);
+                        }}
+                        onBlur={(e) => {
+                          const updated = {
+                            ...config,
+                            utilization: {
+                              ...config.utilization,
+                              cooldownMs: Number(e.target.value) * 60_000,
+                            },
+                          };
+                          void saveConfig(updated);
+                        }}
+                        className="w-[100px]"
                       />
                     </label>
                   </div>

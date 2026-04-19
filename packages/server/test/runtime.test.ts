@@ -47,6 +47,11 @@ function createConfig(walletEnabled: boolean): AlertConfig {
       morphoRescueContract: '',
       maxGasGwei: 50,
     },
+    utilization: {
+      enabled: false,
+      defaultThreshold: 0.9,
+      cooldownMs: 30 * 60 * 1000,
+    },
   };
 }
 

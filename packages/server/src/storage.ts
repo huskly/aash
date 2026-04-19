@@ -2,9 +2,11 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
   DEFAULT_POLLING_CONFIG,
+  DEFAULT_UTILIZATION_CONFIG,
   DEFAULT_WATCHDOG_CONFIG,
   DEFAULT_ZONES,
   type PollingConfig,
+  type UtilizationConfig,
   type WatchdogConfig as CoreWatchdogConfig,
   type ZoneName,
 } from '@aave-monitor/core';
@@ -32,6 +34,7 @@ export type AlertConfig = {
   polling: PollingConfig;
   zones: ZoneConfig[];
   watchdog: WatchdogConfig;
+  utilization: UtilizationConfig;
 };
 
 const DEFAULT_CONFIG: AlertConfig = {
@@ -50,6 +53,7 @@ const DEFAULT_CONFIG: AlertConfig = {
     { name: 'critical', minHF: 0, maxHF: 1.15 },
   ],
   watchdog: { ...DEFAULT_WATCHDOG_CONFIG },
+  utilization: { ...DEFAULT_UTILIZATION_CONFIG },
 };
 
 function parseEnvFloat(name: string): number | undefined {
@@ -156,6 +160,7 @@ export class ConfigStorage {
       if (config.zones) config.zones = normalizeZones(config.zones);
       // Merge with defaults to support older/partial persisted configs.
       config.watchdog = mergeWatchdogConfig(config.watchdog);
+      config.utilization = { ...DEFAULT_UTILIZATION_CONFIG, ...(config.utilization ?? {}) };
       applyWatchdogEnvOverrides(config.watchdog);
       return config;
     } catch {
@@ -178,7 +183,10 @@ export class ConfigStorage {
   }
 
   update(
-    partial: Partial<Omit<AlertConfig, 'watchdog'>> & { watchdog?: Partial<WatchdogConfig> },
+    partial: Partial<Omit<AlertConfig, 'watchdog' | 'utilization'>> & {
+      watchdog?: Partial<WatchdogConfig>;
+      utilization?: Partial<UtilizationConfig>;
+    },
   ): AlertConfig {
     if (partial.wallets !== undefined) this.config.wallets = partial.wallets;
     if (partial.telegram !== undefined) this.config.telegram = partial.telegram;
@@ -189,6 +197,12 @@ export class ConfigStorage {
         ...this.config.watchdog,
         ...partial.watchdog,
       });
+    }
+    if (partial.utilization !== undefined) {
+      this.config.utilization = {
+        ...this.config.utilization,
+        ...partial.utilization,
+      };
     }
     this.save();
     return this.config;

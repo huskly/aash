@@ -15,6 +15,7 @@ export type {
   RawUserReserve,
   RawUserReserveWithMarket,
   ReserveTelemetry,
+  UtilizationConfig,
   WatchdogConfig,
 } from './types.js';
 
@@ -22,6 +23,7 @@ export {
   AAVE_MARKETS,
   COINGECKO_IDS_BY_SYMBOL,
   DEFAULT_POLLING_CONFIG,
+  DEFAULT_UTILIZATION_CONFIG,
   DEFAULT_WATCHDOG_CONFIG,
   ETHEREUM_ADDRESS_REGEX,
   STABLECOIN_CONTRACTS,

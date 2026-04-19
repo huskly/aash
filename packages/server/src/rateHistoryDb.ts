@@ -4,6 +4,7 @@ export type RateSample = {
   timestamp: number; // epoch ms
   borrowRate: number; // weighted decimal, e.g. 0.0325 = 3.25%
   supplyRate: number;
+  utilizationRate: number | null;
 };
 
 export class RateHistoryDb {
@@ -33,20 +34,29 @@ export class RateHistoryDb {
         ON rate_samples (wallet, loan_id, timestamp);
     `);
 
+    // Migration: add utilization_rate column if it doesn't exist yet.
+    try {
+      this.db.exec('ALTER TABLE rate_samples ADD COLUMN utilization_rate REAL');
+    } catch {
+      // Column already exists — ignore.
+    }
+
+    const cols = 'timestamp, borrow_rate, supply_rate, utilization_rate';
+
     this.insertStmt = this.db.prepare(
-      'INSERT OR IGNORE INTO rate_samples (wallet, loan_id, market, timestamp, borrow_rate, supply_rate) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO rate_samples (wallet, loan_id, market, timestamp, borrow_rate, supply_rate, utilization_rate) VALUES (?, ?, ?, ?, ?, ?, ?)',
     );
     this.queryStmt = this.db.prepare(
-      'SELECT timestamp, borrow_rate, supply_rate FROM rate_samples WHERE wallet = ? AND loan_id = ? ORDER BY timestamp ASC',
+      `SELECT ${cols} FROM rate_samples WHERE wallet = ? AND loan_id = ? ORDER BY timestamp ASC`,
     );
     this.queryFromStmt = this.db.prepare(
-      'SELECT timestamp, borrow_rate, supply_rate FROM rate_samples WHERE wallet = ? AND loan_id = ? AND timestamp >= ? ORDER BY timestamp ASC',
+      `SELECT ${cols} FROM rate_samples WHERE wallet = ? AND loan_id = ? AND timestamp >= ? ORDER BY timestamp ASC`,
     );
     this.queryToStmt = this.db.prepare(
-      'SELECT timestamp, borrow_rate, supply_rate FROM rate_samples WHERE wallet = ? AND loan_id = ? AND timestamp <= ? ORDER BY timestamp ASC',
+      `SELECT ${cols} FROM rate_samples WHERE wallet = ? AND loan_id = ? AND timestamp <= ? ORDER BY timestamp ASC`,
     );
     this.queryRangeStmt = this.db.prepare(
-      'SELECT timestamp, borrow_rate, supply_rate FROM rate_samples WHERE wallet = ? AND loan_id = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC',
+      `SELECT ${cols} FROM rate_samples WHERE wallet = ? AND loan_id = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC`,
     );
     this.pruneStmt = this.db.prepare('DELETE FROM rate_samples WHERE timestamp < ?');
   }
@@ -58,12 +68,26 @@ export class RateHistoryDb {
     timestampMs: number,
     borrowRate: number,
     supplyRate: number,
+    utilizationRate?: number,
   ): void {
-    this.insertStmt.run(wallet.toLowerCase(), loanId, market, timestampMs, borrowRate, supplyRate);
+    this.insertStmt.run(
+      wallet.toLowerCase(),
+      loanId,
+      market,
+      timestampMs,
+      borrowRate,
+      supplyRate,
+      utilizationRate ?? null,
+    );
   }
 
   querySamples(wallet: string, loanId: string, fromMs?: number, toMs?: number): RateSample[] {
-    type Row = { timestamp: number; borrow_rate: number; supply_rate: number };
+    type Row = {
+      timestamp: number;
+      borrow_rate: number;
+      supply_rate: number;
+      utilization_rate: number | null;
+    };
     const w = wallet.toLowerCase();
     let rows: Row[];
     if (fromMs != null && toMs != null) {
@@ -79,6 +103,7 @@ export class RateHistoryDb {
       timestamp: r.timestamp,
       borrowRate: r.borrow_rate,
       supplyRate: r.supply_rate,
+      utilizationRate: r.utilization_rate,
     }));
   }
 

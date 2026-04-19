@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { ConfigStorage, type AlertConfig } from '../src/storage.js';
 
-function createBaseConfig(): Omit<AlertConfig, 'watchdog'> {
+function createBaseConfig(): Omit<AlertConfig, 'watchdog' | 'utilization'> {
   return {
     wallets: [],
     telegram: {
@@ -147,6 +147,49 @@ test('load() maps legacy maxTopUpWbtc field to maxRepayAmount', () => {
     const watchdog = storage.get().watchdog;
 
     assert.equal(watchdog.maxRepayAmount, 0.75);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('load() merges missing utilization fields from defaults', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aash-storage-test-'));
+  const configPath = join(dir, 'config.json');
+  const saved = {
+    ...createBaseConfig(),
+    watchdog: { enabled: false },
+  };
+
+  try {
+    writeFileSync(configPath, JSON.stringify(saved, null, 2), 'utf-8');
+
+    const storage = new ConfigStorage(configPath);
+    const utilization = storage.get().utilization;
+
+    assert.equal(utilization.enabled, true);
+    assert.equal(utilization.defaultThreshold, 0.9);
+    assert.equal(utilization.cooldownMs, 30 * 60 * 1000);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('update() merges partial utilization config with existing', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aash-storage-test-'));
+  const configPath = join(dir, 'config.json');
+
+  try {
+    const storage = new ConfigStorage(configPath);
+    storage.update({
+      utilization: { enabled: false, defaultThreshold: 0.85, cooldownMs: 600_000 },
+    });
+
+    storage.update({ utilization: { defaultThreshold: 0.95 } });
+
+    const utilization = storage.get().utilization;
+    assert.equal(utilization.enabled, false);
+    assert.equal(utilization.defaultThreshold, 0.95);
+    assert.equal(utilization.cooldownMs, 600_000);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
