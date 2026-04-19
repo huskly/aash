@@ -35,9 +35,9 @@ export class RateHistoryDb {
     `);
 
     // Migration: add utilization_rate column if it doesn't exist yet.
-    const tableInfo = this.db
-      .prepare("PRAGMA table_info(rate_samples)")
-      .all() as Array<{ name: string }>;
+    const tableInfo = this.db.prepare('PRAGMA table_info(rate_samples)').all() as Array<{
+      name: string;
+    }>;
     const hasUtilizationRate = tableInfo.some((column) => column.name === 'utilization_rate');
     if (!hasUtilizationRate) {
       this.db.exec('ALTER TABLE rate_samples ADD COLUMN utilization_rate REAL');
