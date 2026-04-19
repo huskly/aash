@@ -1,4 +1,4 @@
-import type { AaveMarket, PollingConfig, WatchdogConfig } from './types.js';
+import type { AaveMarket, PollingConfig, UtilizationConfig, WatchdogConfig } from './types.js';
 
 export const AAVE_MARKETS: readonly AaveMarket[] = [
   {
@@ -81,6 +81,12 @@ export const DEFAULT_POLLING_CONFIG: PollingConfig = {
   intervalMs: 5 * 60 * 1000,
   debounceChecks: 2,
   reminderIntervalMs: 30 * 60 * 1000,
+  cooldownMs: 30 * 60 * 1000,
+};
+
+export const DEFAULT_UTILIZATION_CONFIG: UtilizationConfig = {
+  enabled: true,
+  defaultThreshold: 0.9,
   cooldownMs: 30 * 60 * 1000,
 };
 

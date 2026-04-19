@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { UtilizationConfig } from '@aave-monitor/core';
 import type { AlertConfig, WatchdogConfig } from './storage.js';
 
 const partialWatchdogConfigSchema = z
@@ -56,11 +57,19 @@ export const partialAlertConfigSchema = z
       }),
     ),
     watchdog: partialWatchdogConfigSchema,
+    utilization: z
+      .object({
+        enabled: z.boolean(),
+        defaultThreshold: z.number().min(0).max(1),
+        cooldownMs: z.number().positive(),
+      })
+      .partial(),
   })
   .partial();
 
-export type ConfigUpdate = Partial<Omit<AlertConfig, 'watchdog'>> & {
+export type ConfigUpdate = Partial<Omit<AlertConfig, 'watchdog' | 'utilization'>> & {
   watchdog?: Partial<WatchdogConfig>;
+  utilization?: Partial<UtilizationConfig>;
 };
 
 export function parseConfigBody(body: unknown): { data: ConfigUpdate } | { error: string } {

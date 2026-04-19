@@ -131,3 +131,23 @@ test('duplicate samples with same wallet/loan/timestamp are silently ignored', (
   assert.equal(samples[0].borrowRate, 0.03);
   db.close();
 });
+
+test('appendSample with utilization stores and returns it', () => {
+  const db = createDb();
+  db.appendSample('0xabc', 'loan-1', 'market', 1000, 0.03, 0.01, 0.85);
+
+  const samples = db.querySamples('0xabc', 'loan-1');
+  assert.equal(samples.length, 1);
+  assert.equal(samples[0].utilizationRate, 0.85);
+  db.close();
+});
+
+test('appendSample without utilization stores null', () => {
+  const db = createDb();
+  db.appendSample('0xabc', 'loan-1', 'market', 1000, 0.03, 0.01);
+
+  const samples = db.querySamples('0xabc', 'loan-1');
+  assert.equal(samples.length, 1);
+  assert.equal(samples[0].utilizationRate, null);
+  db.close();
+});

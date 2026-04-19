@@ -1,6 +1,8 @@
 import {
   type AssetLiquidation,
   type AssetPosition,
+  type LoanPosition,
+  type ReserveTelemetry,
   type Zone,
   type ZoneName,
   classifyZone,
@@ -20,6 +22,7 @@ import type { TelegramClient } from './telegram.js';
 import { Watchdog, type WatchdogLogEntry } from './watchdog.js';
 import { logger } from './logger.js';
 import { computeRescueAdjustedHF } from './rescueMetrics.js';
+import { fetchReserveTelemetry } from './reserveTelemetry.js';
 import type { RateHistoryDb } from './rateHistoryDb.js';
 
 export type LoanAlertState = {
@@ -41,9 +44,26 @@ export type LoanAlertState = {
   stuckSince: number | null;
 };
 
+export type UtilizationAlertState = {
+  wallet: string;
+  loanId: string;
+  marketName: string;
+  assetAddress: string;
+  assetSymbol: string;
+  /** Whether we have already sent an "exceeded" alert */
+  alerted: boolean;
+  /** Timestamp of last utilization alert sent */
+  lastNotifiedAt: number;
+  /** Last observed utilization rate (0–1) */
+  lastUtilization: number;
+  /** The threshold that was used (from on-chain optimalUsageRatio or config default) */
+  threshold: number;
+};
+
 export type MonitorStatus = {
   running: boolean;
   states: LoanAlertState[];
+  utilizationStates: UtilizationAlertState[];
   totalWalletBorrowedAssetUsd: number;
   lastPollAt: number | null;
   lastError: string | null;
@@ -51,7 +71,13 @@ export type MonitorStatus = {
 };
 
 type WalletNotification = {
-  kind: 'transition' | 'recovery' | 'all-clear' | 'reminder';
+  kind:
+    | 'transition'
+    | 'recovery'
+    | 'all-clear'
+    | 'reminder'
+    | 'utilization-high'
+    | 'utilization-normalized';
   message: string;
 };
 
@@ -62,6 +88,7 @@ type ReminderDigestEntry = {
 
 export class Monitor {
   private states = new Map<string, LoanAlertState>();
+  private utilizationStates = new Map<string, UtilizationAlertState>();
   private timerId: ReturnType<typeof setInterval> | null = null;
   private walletBorrowedAssetUsd = new Map<string, number>();
   private lastPollAt: number | null = null;
@@ -120,6 +147,7 @@ export class Monitor {
     return {
       running: this.running,
       states: Array.from(this.states.values()),
+      utilizationStates: Array.from(this.utilizationStates.values()),
       totalWalletBorrowedAssetUsd: Array.from(this.walletBorrowedAssetUsd.values()).reduce(
         (sum, value) => sum + value,
         0,
@@ -152,6 +180,11 @@ export class Monitor {
     for (const existingAddress of Array.from(this.walletBorrowedAssetUsd.keys())) {
       if (!enabledAddresses.has(existingAddress)) {
         this.walletBorrowedAssetUsd.delete(existingAddress);
+      }
+    }
+    for (const [utilKey, utilState] of Array.from(this.utilizationStates.entries())) {
+      if (!enabledAddresses.has(utilState.wallet.toLowerCase())) {
+        this.utilizationStates.delete(utilKey);
       }
     }
 
@@ -206,6 +239,39 @@ export class Monitor {
       return [];
     });
     const loans = [...buildLoanPositions(reserves, prices), ...morphoLoans];
+
+    // Fetch reserve telemetry for Aave loans when utilization alerts are enabled.
+    // Deduplicate by (marketName, assetAddress) to avoid redundant RPC calls.
+    const telemetryMap = new Map<string, ReserveTelemetry>();
+    if (config.utilization.enabled) {
+      const telemetryKeys = new Map<string, { marketName: string; assetAddress: string }>();
+      for (const loan of loans) {
+        if (loan.marketName.startsWith('morpho_')) continue;
+        for (const asset of loan.borrowed) {
+          const key = `${loan.marketName}:${asset.address.toLowerCase()}`;
+          if (!telemetryKeys.has(key)) {
+            telemetryKeys.set(key, {
+              marketName: loan.marketName,
+              assetAddress: asset.address,
+            });
+          }
+        }
+      }
+      const results = await Promise.allSettled(
+        Array.from(telemetryKeys.entries()).map(async ([key, { marketName, assetAddress }]) => {
+          const telemetry = await fetchReserveTelemetry(marketName, assetAddress, this.rpcUrl);
+          return { key, telemetry };
+        }),
+      );
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          telemetryMap.set(result.value.key, result.value.telemetry);
+        } else {
+          logger.warn({ err: result.reason }, 'Failed to fetch reserve telemetry');
+        }
+      }
+    }
+
     const borrowedAssets = Array.from(
       new Map(
         loans
@@ -239,9 +305,11 @@ export class Monitor {
     const pendingNotifications: WalletNotification[] = [];
     const reminderDigestEntries: ReminderDigestEntry[] = [];
     let shouldSendReminderDigest = false;
+    const metricsCache = new Map<string, ReturnType<typeof computeLoanMetrics>>();
 
     for (const loan of loans) {
       const metrics = computeLoanMetrics(loan);
+      metricsCache.set(loan.id, metrics);
       const adjustedHF = computeRescueAdjustedHF(loan, walletBorrowedAssetBalances);
       const notificationMetrics = { ...metrics, adjustedHF };
       const zone = classifyZone(metrics.healthFactor, this.hydrateZones(config.zones));
@@ -254,6 +322,7 @@ export class Monitor {
         const lastTs = this.lastSampleAt.get(stateKey) ?? 0;
         if (now - lastTs >= 15 * 60 * 1000) {
           try {
+            const utilizationForSample = this.resolveUtilization(loan, telemetryMap);
             this.rateHistoryDb.appendSample(
               address,
               loan.id,
@@ -261,6 +330,7 @@ export class Monitor {
               now,
               metrics.rBorrow,
               metrics.rSupply,
+              utilizationForSample,
             );
             this.lastSampleAt.set(stateKey, now);
           } catch (err) {
@@ -380,6 +450,108 @@ export class Monitor {
       }
     }
 
+    // Utilization alert pass — independent of HF zone transitions
+    const activeUtilKeys = new Set<string>();
+    if (config.utilization.enabled) {
+      for (const loan of loans) {
+        const metrics = metricsCache.get(loan.id)!;
+        for (const borrowedAsset of loan.borrowed) {
+          const assetAddr = borrowedAsset.address.toLowerCase();
+          let currentUtilization: number | undefined;
+          let threshold: number;
+
+          if (loan.marketName.startsWith('morpho_')) {
+            currentUtilization = loan.utilizationRate;
+            threshold = config.utilization.defaultThreshold;
+          } else {
+            const telKey = `${loan.marketName}:${assetAddr}`;
+            const telemetry = telemetryMap.get(telKey);
+            if (telemetry) {
+              currentUtilization = telemetry.utilizationRate;
+              threshold =
+                telemetry.optimalUsageRatio > 0
+                  ? telemetry.optimalUsageRatio
+                  : config.utilization.defaultThreshold;
+            } else {
+              const utilKey = `${address}-${loan.id}-${assetAddr}`;
+              activeUtilKeys.add(utilKey);
+              continue;
+            }
+          }
+
+          if (currentUtilization == null) continue;
+
+          const utilKey = `${address}-${loan.id}-${assetAddr}`;
+          activeUtilKeys.add(utilKey);
+          const existingUtil = this.utilizationStates.get(utilKey);
+
+          if (!existingUtil) {
+            const isAbove = currentUtilization >= threshold;
+            const sent = isAbove && chatId;
+            this.utilizationStates.set(utilKey, {
+              wallet: address,
+              loanId: loan.id,
+              marketName: loan.marketName,
+              assetAddress: assetAddr,
+              assetSymbol: borrowedAsset.symbol,
+              alerted: sent ? true : false,
+              lastNotifiedAt: sent ? now : 0,
+              lastUtilization: currentUtilization,
+              threshold,
+            });
+            if (sent) {
+              pendingNotifications.push({
+                kind: 'utilization-high',
+                message: this.formatUtilizationHigh(
+                  loan,
+                  borrowedAsset,
+                  currentUtilization,
+                  threshold,
+                  metrics,
+                ),
+              });
+            }
+            continue;
+          }
+
+          existingUtil.lastUtilization = currentUtilization;
+          existingUtil.threshold = threshold;
+
+          if (currentUtilization >= threshold && !existingUtil.alerted) {
+            if (chatId && now - existingUtil.lastNotifiedAt >= config.utilization.cooldownMs) {
+              existingUtil.alerted = true;
+              existingUtil.lastNotifiedAt = now;
+              pendingNotifications.push({
+                kind: 'utilization-high',
+                message: this.formatUtilizationHigh(
+                  loan,
+                  borrowedAsset,
+                  currentUtilization,
+                  threshold,
+                  metrics,
+                ),
+              });
+            }
+          } else if (currentUtilization < threshold && existingUtil.alerted) {
+            if (chatId && now - existingUtil.lastNotifiedAt >= config.utilization.cooldownMs) {
+              existingUtil.alerted = false;
+              existingUtil.lastNotifiedAt = now;
+              pendingNotifications.push({
+                kind: 'utilization-normalized',
+                message: this.formatUtilizationNormalized(
+                  loan,
+                  borrowedAsset,
+                  currentUtilization,
+                  threshold,
+                  metrics,
+                ),
+              });
+            }
+          }
+        }
+      }
+    }
+
     if (shouldSendReminderDigest) {
       for (const entry of reminderDigestEntries) {
         pendingNotifications.push({
@@ -408,6 +580,28 @@ export class Monitor {
         this.states.delete(stateKey);
       }
     }
+    for (const utilKey of Array.from(this.utilizationStates.keys())) {
+      if (utilKey.startsWith(walletPrefix) && !activeUtilKeys.has(utilKey)) {
+        this.utilizationStates.delete(utilKey);
+      }
+    }
+  }
+
+  private resolveUtilization(
+    loan: LoanPosition,
+    telemetryMap: Map<string, ReserveTelemetry>,
+  ): number | undefined {
+    if (loan.marketName.startsWith('morpho_')) {
+      return loan.utilizationRate;
+    }
+    const utilizationRates = loan.borrowed
+      .map((borrowed) => {
+        const telKey = `${loan.marketName}:${borrowed.address.toLowerCase()}`;
+        return telemetryMap.get(telKey)?.utilizationRate;
+      })
+      .filter((rate): rate is number => rate !== undefined);
+    if (utilizationRates.length === 0) return undefined;
+    return Math.max(...utilizationRates);
   }
 
   private hydrateZones(configuredZones: AlertConfig['zones'] | undefined): Zone[] {
@@ -528,6 +722,50 @@ export class Monitor {
     ].join('\n');
   }
 
+  private formatUtilizationHigh(
+    loan: { marketName: string },
+    asset: { symbol: string },
+    utilization: number,
+    threshold: number,
+    metrics: { healthFactor: number; rBorrow: number },
+  ): string {
+    const utilPct = (utilization * 100).toFixed(1);
+    const threshPct = (threshold * 100).toFixed(1);
+    const hf = Number.isFinite(metrics.healthFactor) ? metrics.healthFactor.toFixed(2) : '\u221E';
+
+    return [
+      `\u26A0\uFE0F <b>HIGH UTILIZATION</b> \u2014 Rate Spike Risk`,
+      '',
+      `Market: ${loan.marketName} \u00B7 ${asset.symbol}`,
+      `Utilization: <b>${utilPct}%</b> (target: ${threshPct}%)`,
+      `HF: <b>${hf}</b> \u00B7 Borrow rate: <b>${this.formatBorrowRate(metrics.rBorrow)}</b>`,
+      '',
+      `Utilization above target \u2014 borrow rates may spike sharply.`,
+    ].join('\n');
+  }
+
+  private formatUtilizationNormalized(
+    loan: { marketName: string },
+    asset: { symbol: string },
+    utilization: number,
+    threshold: number,
+    metrics: { healthFactor: number; rBorrow: number },
+  ): string {
+    const utilPct = (utilization * 100).toFixed(1);
+    const threshPct = (threshold * 100).toFixed(1);
+    const hf = Number.isFinite(metrics.healthFactor) ? metrics.healthFactor.toFixed(2) : '\u221E';
+
+    return [
+      `\u2705 <b>UTILIZATION NORMALIZED</b>`,
+      '',
+      `Market: ${loan.marketName} \u00B7 ${asset.symbol}`,
+      `Utilization: <b>${utilPct}%</b> (target: ${threshPct}%)`,
+      `HF: <b>${hf}</b> \u00B7 Borrow rate: <b>${this.formatBorrowRate(metrics.rBorrow)}</b>`,
+      '',
+      `Utilization back below target \u2014 borrow rates returning to normal.`,
+    ].join('\n');
+  }
+
   private formatWalletNotification(
     address: string,
     label: string | undefined,
@@ -558,7 +796,11 @@ export class Monitor {
           ? 'Recovery'
           : kind === 'all-clear'
             ? 'All Clear'
-            : 'Reminder';
+            : kind === 'utilization-high'
+              ? 'High Utilization'
+              : kind === 'utilization-normalized'
+                ? 'Utilization Normalized'
+                : 'Reminder';
     return `${base} ${index + 1}`;
   }
 
