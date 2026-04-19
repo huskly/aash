@@ -4,6 +4,17 @@ import {
   type InterestRateCurvePoint,
   type ReserveTelemetry,
 } from '@aave-monitor/core';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 
@@ -23,73 +34,74 @@ const HISTORY_WINDOWS: Array<{ value: HistoryWindow; label: string; durationMs: 
   { value: '180d', label: '6m', durationMs: 180 * 24 * 60 * 60 * 1000 },
 ];
 
-const SVG_WIDTH = 760;
-const SVG_HEIGHT = 280;
-const PADDING = { top: 16, right: 18, bottom: 36, left: 48 };
-
 function fmtPct(value: number, digits = 2): string {
   const scale = 10 ** digits;
   const truncated = Math.trunc(value * 100 * scale) / scale;
   return `${truncated.toFixed(digits)}%`;
 }
 
-function createLinePath(
-  points: InterestRateCurvePoint[],
-  maxY: number,
-  xSelector: (point: InterestRateCurvePoint) => number,
-  ySelector: (point: InterestRateCurvePoint) => number,
-): string {
-  const chartWidth = SVG_WIDTH - PADDING.left - PADDING.right;
-  const chartHeight = SVG_HEIGHT - PADDING.top - PADDING.bottom;
+const CHART_COLORS = {
+  borrow: '#e255bc',
+  supply: 'rgba(226, 236, 244, 0.65)',
+  current: 'rgba(40, 153, 255, 0.9)',
+  optimal: 'rgba(40, 153, 255, 0.6)',
+  grid: 'rgba(139, 158, 179, 0.15)',
+  axis: 'rgba(139, 158, 179, 0.85)',
+  average: 'rgba(226, 236, 244, 0.55)',
+};
 
-  return points
-    .map((point, index) => {
-      const x = PADDING.left + xSelector(point) * chartWidth;
-      const y = PADDING.top + chartHeight - (ySelector(point) / maxY) * chartHeight;
-      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(' ');
-}
+const CHART_STYLE = {
+  background: 'transparent',
+  fontSize: 12,
+  fontFamily: 'inherit',
+};
 
-function xToSvg(value: number): number {
-  const chartWidth = SVG_WIDTH - PADDING.left - PADDING.right;
-  return PADDING.left + value * chartWidth;
-}
-
-function yToSvg(value: number, maxY: number): number {
-  const chartHeight = SVG_HEIGHT - PADDING.top - PADDING.bottom;
-  return PADDING.top + chartHeight - (value / maxY) * chartHeight;
+function PctTooltip({
+  active,
+  payload,
+  label,
+  labelFormatter,
+}: {
+  active?: boolean;
+  payload?: Array<{ name: string; value: number; color: string }>;
+  label?: string | number;
+  labelFormatter?: (label: string | number) => string;
+}) {
+  if (!active || !payload?.length) return null;
+  const displayLabel = labelFormatter ? labelFormatter(label ?? '') : String(label ?? '');
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">
+      {displayLabel && <p className="mb-1 font-medium text-muted-foreground">{displayLabel}</p>}
+      {payload.map((entry) => (
+        <p key={entry.name} style={{ color: entry.color }} className="font-semibold">
+          {entry.name}: {fmtPct(entry.value)}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 export function UtilizationCurveCard({ reserve }: { reserve: ReserveTelemetry }) {
   const curve = useMemo(() => buildVariableBorrowCurve(reserve, 64), [reserve]);
-  const maxRate = useMemo(() => {
-    const curveMax = Math.max(
-      ...curve.map((point) => point.variableBorrowRate),
-      reserve.variableBorrowRate,
-    );
-    return Math.max(curveMax * 1.12, 0.05);
-  }, [curve, reserve.variableBorrowRate]);
-  const curvePath = useMemo(
+
+  const data = useMemo(
     () =>
-      createLinePath(
-        curve,
-        maxRate,
-        (point) => point.utilizationRate,
-        (point) => point.variableBorrowRate,
-      ),
-    [curve, maxRate],
+      curve.map((point: InterestRateCurvePoint) => ({
+        utilizationRate: point.utilizationRate,
+        borrowRate: point.variableBorrowRate,
+      })),
+    [curve],
   );
 
-  const currentX = xToSvg(reserve.utilizationRate);
-  const optimalX = xToSvg(reserve.optimalUsageRatio);
-  const currentY = yToSvg(reserve.variableBorrowRate, maxRate);
-  const optimalY = yToSvg(
-    curve.find((point) => Math.abs(point.utilizationRate - reserve.optimalUsageRatio) < 0.001)
-      ?.variableBorrowRate ?? reserve.variableBorrowRate,
-    maxRate,
-  );
-  const yTicks = [0, maxRate / 2, maxRate];
+  const maxRate = useMemo(() => {
+    const curveMax = Math.max(...curve.map((p: InterestRateCurvePoint) => p.variableBorrowRate));
+    return Math.max(curveMax * 1.12, 0.05);
+  }, [curve]);
+
+  const yTicks = useMemo(() => {
+    const step = maxRate / 4;
+    return Array.from({ length: 5 }, (_, i) => Math.round(i * step * 10000) / 10000);
+  }, [maxRate]);
 
   return (
     <Card>
@@ -103,102 +115,71 @@ export function UtilizationCurveCard({ reserve }: { reserve: ReserveTelemetry })
           <Stat label="Optimal Utilization" value={fmtPct(reserve.optimalUsageRatio)} />
         </div>
 
-        <svg
-          viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
-          className="w-full overflow-visible"
-          role="img"
-          aria-label={`Aave utilization curve for ${reserve.symbol || reserve.assetAddress}`}
-        >
-          <rect
-            x={PADDING.left}
-            y={PADDING.top}
-            width={SVG_WIDTH - PADDING.left - PADDING.right}
-            height={SVG_HEIGHT - PADDING.top - PADDING.bottom}
-            rx="12"
-            fill="transparent"
-          />
-          {yTicks.map((tick) => {
-            const y = yToSvg(tick, maxRate);
-            return (
-              <g key={tick}>
-                <line
-                  x1={PADDING.left}
-                  x2={SVG_WIDTH - PADDING.right}
-                  y1={y}
-                  y2={y}
-                  stroke="rgba(139, 158, 179, 0.22)"
-                  strokeDasharray="5 5"
-                />
-                <text
-                  x={PADDING.left - 12}
-                  y={y + 4}
-                  fill="rgba(139, 158, 179, 0.85)"
-                  fontSize="12"
-                  textAnchor="end"
-                >
-                  {fmtPct(tick, 0)}
-                </text>
-              </g>
-            );
-          })}
-          {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
-            <text
-              key={tick}
-              x={xToSvg(tick)}
-              y={SVG_HEIGHT - 10}
-              fill="rgba(139, 158, 179, 0.85)"
-              fontSize="12"
-              textAnchor={tick === 0 ? 'start' : tick === 1 ? 'end' : 'middle'}
-            >
-              {fmtPct(tick, 0)}
-            </text>
-          ))}
-
-          <path d={curvePath} fill="none" stroke="#e255bc" strokeWidth="3" strokeLinecap="round" />
-
-          <line
-            x1={optimalX}
-            x2={optimalX}
-            y1={PADDING.top}
-            y2={SVG_HEIGHT - PADDING.bottom}
-            stroke="rgba(40, 153, 255, 0.8)"
-            strokeDasharray="4 4"
-          />
-          <line
-            x1={currentX}
-            x2={currentX}
-            y1={PADDING.top}
-            y2={SVG_HEIGHT - PADDING.bottom}
-            stroke="rgba(40, 153, 255, 0.8)"
-            strokeDasharray="4 4"
-          />
-
-          <circle
-            cx={currentX}
-            cy={currentY}
-            r="5"
-            fill="#e255bc"
-            stroke="#0a1220"
-            strokeWidth="2"
-          />
-
-          <text
-            x={Math.min(currentX + 8, SVG_WIDTH - PADDING.right - 8)}
-            y={Math.max(currentY - 12, PADDING.top + 12)}
-            fill="rgba(226, 236, 244, 0.95)"
-            fontSize="12"
+        <ResponsiveContainer width="100%" height={280}>
+          <LineChart
+            data={data}
+            style={CHART_STYLE}
+            margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
           >
-            Current {fmtPct(reserve.utilizationRate)}
-          </text>
-          <text
-            x={Math.min(optimalX + 8, SVG_WIDTH - PADDING.right - 8)}
-            y={Math.max(optimalY - 12, PADDING.top + 28)}
-            fill="rgba(139, 158, 179, 0.95)"
-            fontSize="12"
-          >
-            Optimal {fmtPct(reserve.optimalUsageRatio)}
-          </text>
-        </svg>
+            <CartesianGrid strokeDasharray="5 5" stroke={CHART_COLORS.grid} vertical={false} />
+            <XAxis
+              dataKey="utilizationRate"
+              type="number"
+              domain={[0, 1]}
+              tickFormatter={(v) => fmtPct(v, 0)}
+              ticks={[0, 0.25, 0.5, 0.75, 1]}
+              tick={{ fill: CHART_COLORS.axis, fontSize: 12 }}
+              tickLine={false}
+              axisLine={{ stroke: CHART_COLORS.grid }}
+            />
+            <YAxis
+              domain={[0, maxRate]}
+              tickFormatter={(v) => fmtPct(v, 0)}
+              ticks={yTicks}
+              tick={{ fill: CHART_COLORS.axis, fontSize: 12 }}
+              tickLine={false}
+              axisLine={false}
+              width={40}
+            />
+            <Tooltip
+              content={<PctTooltip labelFormatter={(v) => `Utilization: ${fmtPct(Number(v))}`} />}
+              cursor={{ stroke: 'rgba(139, 158, 179, 0.4)', strokeWidth: 1 }}
+            />
+            <ReferenceLine
+              x={reserve.optimalUsageRatio}
+              stroke={CHART_COLORS.optimal}
+              strokeDasharray="4 4"
+              label={{
+                value: `Optimal ${fmtPct(reserve.optimalUsageRatio)}`,
+                position: 'insideTopRight',
+                fill: 'rgba(139, 158, 179, 0.95)',
+                fontSize: 11,
+                offset: 6,
+              }}
+            />
+            <ReferenceLine
+              x={reserve.utilizationRate}
+              stroke={CHART_COLORS.current}
+              strokeDasharray="4 4"
+              label={{
+                value: `Current ${fmtPct(reserve.utilizationRate)}`,
+                position: 'insideTopLeft',
+                fill: 'rgba(226, 236, 244, 0.95)',
+                fontSize: 11,
+                offset: 6,
+              }}
+            />
+            <Line
+              type="monotone"
+              dataKey="borrowRate"
+              name="Borrow APR"
+              stroke={CHART_COLORS.borrow}
+              strokeWidth={2.5}
+              dot={false}
+              activeDot={{ r: 5, fill: CHART_COLORS.borrow, stroke: '#0a1220', strokeWidth: 2 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
       </CardContent>
     </Card>
   );
@@ -209,8 +190,6 @@ const MORPHO_TARGET_UTIL = 0.9;
 const MORPHO_CURVE_STEEPNESS = 4;
 const MORPHO_IRM_SAMPLES = 80;
 
-// Below target: simple linear from 0 → rateAtTarget (matches Morpho dashboard rendering).
-// Above target: steeper slope using the on-chain CURVE_STEEPNESS=4 formula.
 function morphoBorrowRate(rateAtTarget: number, u: number): number {
   if (u <= MORPHO_TARGET_UTIL) {
     return rateAtTarget * (u / MORPHO_TARGET_UTIL);
@@ -243,46 +222,37 @@ export function MorphoIrmCard({
     [borrowRate, utilizationRate],
   );
 
-  // Derive fee factor to draw supply curve: supplyApy = borrowRate * utilization * (1 - fee)
   const feeFactor = useMemo(() => {
     if (supplyApy == null || borrowRate <= 0 || utilizationRate <= 0) return null;
     return supplyApy / (borrowRate * utilizationRate);
   }, [supplyApy, borrowRate, utilizationRate]);
 
-  const { borrowCurvePath, supplyCurvePath, maxRate } = useMemo(() => {
+  const { data, maxRate } = useMemo(() => {
     const samples = Array.from(
       { length: MORPHO_IRM_SAMPLES + 1 },
       (_, i) => i / MORPHO_IRM_SAMPLES,
     );
-    const chartWidth = SVG_WIDTH - PADDING.left - PADDING.right;
-    const chartHeight = SVG_HEIGHT - PADDING.top - PADDING.bottom;
-
     const maxBorrow = morphoBorrowRate(rateAtTarget, 1);
     const maxSupply = feeFactor != null ? maxBorrow * feeFactor : 0;
     const max = Math.max(maxBorrow, maxSupply, 0.02) * 1.12;
 
-    const toPath = (rateFn: (u: number) => number) =>
-      samples
-        .map((u, i) => {
-          const x = PADDING.left + u * chartWidth;
-          const y = PADDING.top + chartHeight - (rateFn(u) / max) * chartHeight;
-          return `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
-        })
-        .join(' ');
-
     return {
-      borrowCurvePath: toPath((u) => morphoBorrowRate(rateAtTarget, u)),
-      supplyCurvePath:
-        feeFactor != null ? toPath((u) => morphoBorrowRate(rateAtTarget, u) * u * feeFactor) : null,
+      data: samples.map((u) => ({
+        utilizationRate: u,
+        borrowRate: morphoBorrowRate(rateAtTarget, u),
+        supplyApy:
+          feeFactor != null ? morphoBorrowRate(rateAtTarget, u) * u * feeFactor : undefined,
+      })),
       maxRate: max,
     };
   }, [rateAtTarget, feeFactor]);
 
-  const currentX = xToSvg(utilizationRate);
-  const targetX = xToSvg(MORPHO_TARGET_UTIL);
-  const currentBorrowY = yToSvg(borrowRate, maxRate);
-  const targetBorrowY = yToSvg(rateAtTarget, maxRate);
-  const yTicks = [0, maxRate / 2, maxRate];
+  const yTicks = useMemo(() => {
+    const step = maxRate / 4;
+    return Array.from({ length: 5 }, (_, i) => Math.round(i * step * 10000) / 10000);
+  }, [maxRate]);
+
+  const hasSupply = feeFactor != null;
 
   return (
     <Card>
@@ -297,115 +267,83 @@ export function MorphoIrmCard({
           <Stat label="Borrow APR" value={fmtPct(borrowRate)} />
         </div>
 
-        <svg
-          viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
-          className="w-full overflow-visible"
-          role="img"
-          aria-label="Morpho Adaptive IRM utilization curve"
-        >
-          {yTicks.map((tick) => {
-            const y = yToSvg(tick, maxRate);
-            return (
-              <g key={tick}>
-                <line
-                  x1={PADDING.left}
-                  x2={SVG_WIDTH - PADDING.right}
-                  y1={y}
-                  y2={y}
-                  stroke="rgba(139, 158, 179, 0.22)"
-                  strokeDasharray="5 5"
-                />
-                <text
-                  x={PADDING.left - 12}
-                  y={y + 4}
-                  fill="rgba(139, 158, 179, 0.85)"
-                  fontSize="12"
-                  textAnchor="end"
-                >
-                  {fmtPct(tick, 0)}
-                </text>
-              </g>
-            );
-          })}
-          {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
-            <text
-              key={tick}
-              x={xToSvg(tick)}
-              y={SVG_HEIGHT - 10}
-              fill="rgba(139, 158, 179, 0.85)"
-              fontSize="12"
-              textAnchor={tick === 0 ? 'start' : tick === 1 ? 'end' : 'middle'}
-            >
-              {fmtPct(tick, 0)}
-            </text>
-          ))}
-
-          {/* Supply curve (lower, lighter) */}
-          {supplyCurvePath && (
-            <path
-              d={supplyCurvePath}
-              fill="none"
-              stroke="rgba(226, 236, 244, 0.45)"
-              strokeWidth="2.5"
-              strokeLinecap="round"
+        <ResponsiveContainer width="100%" height={280}>
+          <LineChart
+            data={data}
+            style={CHART_STYLE}
+            margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
+          >
+            <CartesianGrid strokeDasharray="5 5" stroke={CHART_COLORS.grid} vertical={false} />
+            <XAxis
+              dataKey="utilizationRate"
+              type="number"
+              domain={[0, 1]}
+              tickFormatter={(v) => fmtPct(v, 0)}
+              ticks={[0, 0.25, 0.5, 0.75, 1]}
+              tick={{ fill: CHART_COLORS.axis, fontSize: 12 }}
+              tickLine={false}
+              axisLine={{ stroke: CHART_COLORS.grid }}
             />
-          )}
-
-          {/* Borrow curve */}
-          <path
-            d={borrowCurvePath}
-            fill="none"
-            stroke="#e255bc"
-            strokeWidth="3"
-            strokeLinecap="round"
-          />
-
-          {/* Target utilization dashed line */}
-          <line
-            x1={targetX}
-            x2={targetX}
-            y1={PADDING.top}
-            y2={SVG_HEIGHT - PADDING.bottom}
-            stroke="rgba(40, 153, 255, 0.6)"
-            strokeDasharray="4 4"
-          />
-          {/* Current utilization dashed line */}
-          <line
-            x1={currentX}
-            x2={currentX}
-            y1={PADDING.top}
-            y2={SVG_HEIGHT - PADDING.bottom}
-            stroke="rgba(40, 153, 255, 0.8)"
-            strokeDasharray="4 4"
-          />
-
-          {/* Current borrow rate dot */}
-          <circle
-            cx={currentX}
-            cy={currentBorrowY}
-            r="5"
-            fill="#e255bc"
-            stroke="#0a1220"
-            strokeWidth="2"
-          />
-
-          <text
-            x={Math.min(currentX + 8, SVG_WIDTH - PADDING.right - 8)}
-            y={Math.max(currentBorrowY - 12, PADDING.top + 12)}
-            fill="rgba(226, 236, 244, 0.95)"
-            fontSize="12"
-          >
-            Current {fmtPct(utilizationRate)}
-          </text>
-          <text
-            x={Math.min(targetX + 8, SVG_WIDTH - PADDING.right - 8)}
-            y={Math.max(targetBorrowY - 12, PADDING.top + 28)}
-            fill="rgba(139, 158, 179, 0.95)"
-            fontSize="12"
-          >
-            Target {fmtPct(MORPHO_TARGET_UTIL)}
-          </text>
-        </svg>
+            <YAxis
+              domain={[0, maxRate]}
+              tickFormatter={(v) => fmtPct(v, 0)}
+              ticks={yTicks}
+              tick={{ fill: CHART_COLORS.axis, fontSize: 12 }}
+              tickLine={false}
+              axisLine={false}
+              width={40}
+            />
+            <Tooltip
+              content={<PctTooltip labelFormatter={(v) => `Utilization: ${fmtPct(Number(v))}`} />}
+              cursor={{ stroke: 'rgba(139, 158, 179, 0.4)', strokeWidth: 1 }}
+            />
+            {hasSupply && <Legend wrapperStyle={{ fontSize: 12, color: CHART_COLORS.axis }} />}
+            <ReferenceLine
+              x={MORPHO_TARGET_UTIL}
+              stroke={CHART_COLORS.optimal}
+              strokeDasharray="4 4"
+              label={{
+                value: `Target ${fmtPct(MORPHO_TARGET_UTIL)}`,
+                position: 'insideTopRight',
+                fill: 'rgba(139, 158, 179, 0.95)',
+                fontSize: 11,
+                offset: 6,
+              }}
+            />
+            <ReferenceLine
+              x={utilizationRate}
+              stroke={CHART_COLORS.current}
+              strokeDasharray="4 4"
+              label={{
+                value: `Current ${fmtPct(utilizationRate)}`,
+                position: 'insideTopLeft',
+                fill: 'rgba(226, 236, 244, 0.95)',
+                fontSize: 11,
+                offset: 6,
+              }}
+            />
+            {hasSupply && (
+              <Line
+                type="monotone"
+                dataKey="supplyApy"
+                name="Supply APY"
+                stroke={CHART_COLORS.supply}
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4, fill: CHART_COLORS.supply, stroke: '#0a1220', strokeWidth: 2 }}
+              />
+            )}
+            <Line
+              type="monotone"
+              dataKey="borrowRate"
+              name="Borrow APR"
+              stroke={CHART_COLORS.borrow}
+              strokeWidth={2.5}
+              dot={false}
+              activeDot={{ r: 5, fill: CHART_COLORS.borrow, stroke: '#0a1220', strokeWidth: 2 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
 
         <p className="text-xs text-muted-foreground">
           Morpho Adaptive IRM · LLTV {fmtPct(lltv)} · Rate at target adjusts over time based on
@@ -437,41 +375,45 @@ export function BorrowRateHistoryCard({
     });
   }, [currentTimeMs, samples, windowValue]);
 
-  const historyPoints = useMemo<{
-    maxRate: number;
-    path: string;
-    averageRate: number;
-    lastRate: number;
-  } | null>(() => {
-    if (filteredSamples.length === 0) return null;
+  const { data, averageRate, lastRate, maxRate } = useMemo(() => {
+    if (filteredSamples.length === 0)
+      return { data: [], averageRate: 0, lastRate: 0, maxRate: 0.02 };
 
-    const minTime = new Date(filteredSamples[0]?.timestamp ?? '').getTime();
-    const maxTime = new Date(filteredSamples.at(-1)?.timestamp ?? '').getTime();
-    const span = Math.max(maxTime - minTime, 1);
-    const maxRate = Math.max(
-      ...filteredSamples.map((sample) => sample.variableBorrowRate),
+    const avg =
+      filteredSamples.reduce((sum, s) => sum + s.variableBorrowRate, 0) / filteredSamples.length;
+    const last = filteredSamples.at(-1)?.variableBorrowRate ?? 0;
+    const max = Math.max(
+      ...filteredSamples.map((s) => s.variableBorrowRate),
       reserve?.variableBorrowRate ?? 0,
       0.02,
     );
 
     return {
-      maxRate: maxRate * 1.1,
-      path: filteredSamples
-        .map((sample, index) => {
-          const timestamp = new Date(sample.timestamp).getTime();
-          const x =
-            PADDING.left +
-            ((timestamp - minTime) / span) * (SVG_WIDTH - PADDING.left - PADDING.right);
-          const y = yToSvg(sample.variableBorrowRate, maxRate * 1.1);
-          return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
-        })
-        .join(' '),
-      averageRate:
-        filteredSamples.reduce((sum, sample) => sum + sample.variableBorrowRate, 0) /
-        filteredSamples.length,
-      lastRate: filteredSamples.at(-1)?.variableBorrowRate ?? 0,
+      data: filteredSamples.map((s) => ({
+        timestamp: new Date(s.timestamp).getTime(),
+        borrowRate: s.variableBorrowRate,
+      })),
+      averageRate: avg,
+      lastRate: last,
+      maxRate: max * 1.1,
     };
   }, [filteredSamples, reserve?.variableBorrowRate]);
+
+  const yTicks = useMemo(() => {
+    const step = maxRate / 4;
+    return Array.from({ length: 5 }, (_, i) => Math.round(i * step * 10000) / 10000);
+  }, [maxRate]);
+
+  const xTickFormatter = useMemo(() => {
+    if (data.length < 2) return (v: number) => String(v);
+    const spanMs = data[data.length - 1]!.timestamp - data[0]!.timestamp;
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    if (spanMs <= oneDayMs) {
+      return (v: number) =>
+        new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return (v: number) => new Date(v).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }, [data]);
 
   return (
     <Card>
@@ -497,61 +439,88 @@ export function BorrowRateHistoryCard({
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">
-        {filteredSamples.length >= 2 && historyPoints ? (
+        {filteredSamples.length >= 2 ? (
           <>
             <div className="grid gap-1 sm:grid-cols-3">
-              <Stat label="Latest APR" value={fmtPct(historyPoints.lastRate)} />
-              <Stat label="Average APR" value={fmtPct(historyPoints.averageRate)} />
+              <Stat label="Latest APR" value={fmtPct(lastRate)} />
+              <Stat label="Average APR" value={fmtPct(averageRate)} />
               <Stat label="Samples" value={filteredSamples.length.toLocaleString()} />
             </div>
 
-            <svg
-              viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
-              className="w-full overflow-visible"
-              role="img"
-              aria-label="Borrow APR history"
-            >
-              {[0, historyPoints.maxRate / 2, historyPoints.maxRate].map((tick) => {
-                const y = yToSvg(tick, historyPoints.maxRate);
-                return (
-                  <g key={tick}>
-                    <line
-                      x1={PADDING.left}
-                      x2={SVG_WIDTH - PADDING.right}
-                      y1={y}
-                      y2={y}
-                      stroke="rgba(139, 158, 179, 0.22)"
-                      strokeDasharray="5 5"
-                    />
-                    <text
-                      x={PADDING.left - 12}
-                      y={y + 4}
-                      fill="rgba(139, 158, 179, 0.85)"
-                      fontSize="12"
-                      textAnchor="end"
-                    >
-                      {fmtPct(tick, 0)}
-                    </text>
-                  </g>
-                );
-              })}
-
-              <line
-                x1={PADDING.left}
-                x2={SVG_WIDTH - PADDING.right}
-                y1={yToSvg(historyPoints.averageRate, historyPoints.maxRate)}
-                y2={yToSvg(historyPoints.averageRate, historyPoints.maxRate)}
-                stroke="rgba(226, 236, 244, 0.65)"
-                strokeDasharray="6 5"
-              />
-              <path
-                d={historyPoints.path}
-                fill="none"
-                stroke="#e255bc"
-                strokeWidth="3"
-                strokeLinecap="round"
-              />
-            </svg>
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart
+                data={data}
+                style={CHART_STYLE}
+                margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
+              >
+                <CartesianGrid strokeDasharray="5 5" stroke={CHART_COLORS.grid} vertical={false} />
+                <XAxis
+                  dataKey="timestamp"
+                  type="number"
+                  scale="time"
+                  domain={['dataMin', 'dataMax']}
+                  tickFormatter={xTickFormatter}
+                  tick={{ fill: CHART_COLORS.axis, fontSize: 12 }}
+                  tickLine={false}
+                  axisLine={{ stroke: CHART_COLORS.grid }}
+                  minTickGap={60}
+                />
+                <YAxis
+                  domain={[0, maxRate]}
+                  tickFormatter={(v) => fmtPct(v, 0)}
+                  ticks={yTicks}
+                  tick={{ fill: CHART_COLORS.axis, fontSize: 12 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={40}
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const point = payload[0];
+                    const ts = point?.payload?.timestamp as number | undefined;
+                    return (
+                      <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">
+                        {ts && (
+                          <p className="mb-1 font-medium text-muted-foreground">
+                            {new Date(ts).toLocaleString([], {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </p>
+                        )}
+                        <p style={{ color: CHART_COLORS.borrow }} className="font-semibold">
+                          Borrow APR: {fmtPct(Number(point?.value ?? 0))}
+                        </p>
+                      </div>
+                    );
+                  }}
+                  cursor={{ stroke: 'rgba(139, 158, 179, 0.4)', strokeWidth: 1 }}
+                />
+                <ReferenceLine
+                  y={averageRate}
+                  stroke={CHART_COLORS.average}
+                  strokeDasharray="6 5"
+                  label={{
+                    value: `Avg ${fmtPct(averageRate)}`,
+                    position: 'insideTopRight',
+                    fill: 'rgba(226, 236, 244, 0.65)',
+                    fontSize: 11,
+                  }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="borrowRate"
+                  name="Borrow APR"
+                  stroke={CHART_COLORS.borrow}
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 5, fill: CHART_COLORS.borrow, stroke: '#0a1220', strokeWidth: 2 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </>
         ) : (
           <div className="rounded-lg border border-border bg-accent px-4 py-5 text-sm text-muted-foreground">
