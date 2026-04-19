@@ -193,8 +193,10 @@ export default function App() {
     setSelectedReserveTelemetry(null);
     setReserveTelemetryError('');
 
-    // Fetch rate history from backend, fall back to localStorage if unavailable
-    void fetchBorrowRateHistory(wallet, selectedLoan.id).then((apiSamples) => {
+    // Fetch rate history from backend, fall back to localStorage if unavailable.
+    // Use the resolved wallet from the loaded result, not the editable input field.
+    const resolvedWallet = result?.wallet ?? wallet.trim();
+    void fetchBorrowRateHistory(resolvedWallet, selectedLoan.id).then((apiSamples) => {
       if (cancelled) return;
       if (apiSamples.length > 0) {
         setBorrowRateHistory(apiSamples);
@@ -229,7 +231,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [result?.lastUpdated, selectedLoan?.marketName, selectedLoan, wallet]);
+  }, [result?.lastUpdated, result?.wallet, selectedLoan?.marketName, selectedLoan, wallet]);
 
   const handleFetch = async (event: FormEvent) => {
     event.preventDefault();

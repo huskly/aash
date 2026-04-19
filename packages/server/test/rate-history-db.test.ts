@@ -90,3 +90,44 @@ test('prune removes samples older than maxAge and keeps recent ones', () => {
   assert.equal(remaining.length, 2);
   db.close();
 });
+
+test('querySamples filters with from-only', () => {
+  const db = createDb();
+  db.appendSample('0xabc', 'loan-1', 'market', 1000, 0.03, 0.01);
+  db.appendSample('0xabc', 'loan-1', 'market', 2000, 0.04, 0.02);
+  db.appendSample('0xabc', 'loan-1', 'market', 3000, 0.05, 0.03);
+
+  const samples = db.querySamples('0xabc', 'loan-1', 1500);
+  assert.equal(samples.length, 2);
+  assert.deepEqual(
+    samples.map((s) => s.timestamp),
+    [2000, 3000],
+  );
+  db.close();
+});
+
+test('querySamples filters with to-only', () => {
+  const db = createDb();
+  db.appendSample('0xabc', 'loan-1', 'market', 1000, 0.03, 0.01);
+  db.appendSample('0xabc', 'loan-1', 'market', 2000, 0.04, 0.02);
+  db.appendSample('0xabc', 'loan-1', 'market', 3000, 0.05, 0.03);
+
+  const samples = db.querySamples('0xabc', 'loan-1', undefined, 2500);
+  assert.equal(samples.length, 2);
+  assert.deepEqual(
+    samples.map((s) => s.timestamp),
+    [1000, 2000],
+  );
+  db.close();
+});
+
+test('duplicate samples with same wallet/loan/timestamp are silently ignored', () => {
+  const db = createDb();
+  db.appendSample('0xabc', 'loan-1', 'market', 1000, 0.03, 0.01);
+  db.appendSample('0xabc', 'loan-1', 'market', 1000, 0.05, 0.02);
+
+  const samples = db.querySamples('0xabc', 'loan-1');
+  assert.equal(samples.length, 1);
+  assert.equal(samples[0].borrowRate, 0.03);
+  db.close();
+});

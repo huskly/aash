@@ -165,7 +165,11 @@ export class Monitor {
       for (const wallet of enabledWallets) {
         await this.checkWallet(wallet.address, wallet.label, config, chatId);
       }
-      this.rateHistoryDb?.prune(180 * 24 * 60 * 60 * 1000);
+      try {
+        this.rateHistoryDb?.prune(180 * 24 * 60 * 60 * 1000);
+      } catch (err) {
+        logger.warn({ err }, 'Failed to prune rate history');
+      }
       this.lastPollAt = Date.now();
       this.lastError = null;
     } catch (error) {
@@ -244,19 +248,24 @@ export class Monitor {
       const stateKey = `${address}-${loan.id}`;
       activeStateKeys.add(stateKey);
 
-      // Record rate sample (throttled to 15-minute intervals)
+      // Record rate sample (throttled to 15-minute intervals).
+      // Guarded so DB failures never interrupt core health monitoring.
       if (this.rateHistoryDb) {
         const lastTs = this.lastSampleAt.get(stateKey) ?? 0;
         if (now - lastTs >= 15 * 60 * 1000) {
-          this.rateHistoryDb.appendSample(
-            address,
-            loan.id,
-            loan.marketName,
-            now,
-            metrics.rBorrow,
-            metrics.rSupply,
-          );
-          this.lastSampleAt.set(stateKey, now);
+          try {
+            this.rateHistoryDb.appendSample(
+              address,
+              loan.id,
+              loan.marketName,
+              now,
+              metrics.rBorrow,
+              metrics.rSupply,
+            );
+            this.lastSampleAt.set(stateKey, now);
+          } catch (err) {
+            logger.warn({ err, loan: loan.id }, 'Failed to record rate sample');
+          }
         }
       }
 
