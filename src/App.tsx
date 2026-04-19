@@ -268,7 +268,7 @@ export default function App() {
 
   return (
     <ToastProvider value={{ pushToast }}>
-      <div className="min-h-screen w-full bg-background px-4 py-6 text-foreground antialiased md:px-6 md:py-8">
+      <div className="min-h-screen w-full overflow-x-hidden bg-background px-4 py-6 text-foreground antialiased md:px-6 md:py-8">
         <main className="mx-auto max-w-7xl">
           <header className="flex items-end justify-between gap-4 max-[980px]:flex-col max-[980px]:items-start">
             <div>
