@@ -16,6 +16,7 @@ import { logger } from './logger.js';
 import { fetchReserveTelemetry } from './reserveTelemetry.js';
 import { parseConfigBody } from './configSchema.js';
 import { formatStatusMessage } from './statusMessage.js';
+import { RateHistoryDb } from './rateHistoryDb.js';
 
 const tokenBalanceRequestSchema = z.object({
   tokens: z.array(
@@ -30,6 +31,13 @@ const reserveTelemetryQuerySchema = z.object({
   market: z.string().min(1),
   asset: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   symbol: z.string().optional(),
+});
+
+const rateHistoryQuerySchema = z.object({
+  wallet: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  loanId: z.string().min(1),
+  from: z.coerce.number().int().optional(),
+  to: z.coerce.number().int().optional(),
 });
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -50,6 +58,7 @@ const WATCHDOG_EXECUTOR_PRIVATE_KEY =
 const configPath = join(__dirname, '..', 'data', 'config.json');
 const storage = new ConfigStorage(configPath);
 const telegram = new TelegramClient(TELEGRAM_BOT_TOKEN);
+const rateHistoryDb = new RateHistoryDb(join(__dirname, '..', 'data', 'rates.db'));
 const monitor = new Monitor(
   telegram,
   () => storage.get(),
@@ -57,6 +66,7 @@ const monitor = new Monitor(
   COINGECKO_API_KEY,
   RPC_URL,
   WATCHDOG_EXECUTOR_PRIVATE_KEY,
+  rateHistoryDb,
 );
 
 const TELEGRAM_BOT_COMMANDS: TelegramBotCommand[] = [
@@ -244,6 +254,17 @@ app.get('/api/reserves/telemetry', async (req, res) => {
     const message = error instanceof Error ? error.message : 'Failed to fetch reserve telemetry';
     res.status(502).json({ error: message });
   }
+});
+
+app.get('/api/rates/history', (req, res) => {
+  const parsed = rateHistoryQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid wallet address or loanId' });
+    return;
+  }
+  const { wallet, loanId, from, to } = parsed.data;
+  const samples = rateHistoryDb.querySamples(wallet, loanId, from, to);
+  res.json({ samples });
 });
 
 app.get('/api/health', (_req, res) => {

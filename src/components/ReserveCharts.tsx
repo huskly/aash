@@ -479,7 +479,7 @@ export function BorrowRateHistoryCard({
         <div>
           <CardTitle>Borrow APR History</CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            Sampled from reserve telemetry on each refresh and stored locally in this browser.
+            Sampled from reserve telemetry by the server and tracked over time.
           </p>
         </div>
         <div className="flex flex-wrap justify-end gap-1">

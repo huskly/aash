@@ -14,6 +14,7 @@
   "dependencies": {
     "@aave-monitor/core": "*",
     "@bgd-labs/aave-address-book": "^4.44.22",
+    "better-sqlite3": "^12.9.0",
     "date-fns": "^4.1.0",
     "ethers": "^6.16.0",
     "express": "^5.1.0",
@@ -21,6 +22,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.0",
     "tsx": "^4.19.0",
     "typescript": "~5.9.2"

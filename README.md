@@ -47,7 +47,7 @@ A React + Vite dashboard that auto-loads Aave loans, Morpho Blue market position
   - Loan table `Accrued Int.` column for borrowed positions when provided by the upstream protocol API (currently populated for Morpho positions when available)
   - Separate Morpho vault table with deposited asset amount, USD value, net APY, and shares
   - Aave interest-rate model chart for the selected borrowed asset, including current utilization and the reserve kink
-  - Borrow APR history chart for the selected borrowed asset, built from locally stored reserve telemetry samples
+  - Borrow APR history chart for the selected borrowed asset, tracked server-side with 180-day retention
   - Repay coverage based on wallet balances that match borrowed assets
   - Monitoring checklist + sensitivity cards
 
@@ -220,12 +220,12 @@ The watchdog monitors loan health and can execute an atomic on-chain rescue when
 4. Token prices are fetched from CoinGecko for Aave assets, while Morpho positions use API-provided pricing or USD back-calculation for borrowed assets and vault deposits. Morpho market borrow/supply rates are aligned to Morpho's interface default 1-day average APY by preferring Morpho's `avgBorrowApy` / `avgSupplyApy` fields instead of the instantaneous spot rate.
 5. Portfolio-level aggregate metrics are computed across all active positions, with loan-risk metrics kept separate from supply-only vault assets.
 6. Detailed risk metrics are computed and rendered for the selected loan, while Morpho vaults render in a separate table.
-7. When the API server is available, the dashboard also reads on-chain reserve telemetry for the selected borrowed asset and stores periodic borrow APR samples in browser `localStorage` to build the history chart over time.
+7. The backend monitor records borrow/supply rate samples to a SQLite database (`packages/server/data/rates.db`) every 15 minutes during its poll cycle. The dashboard fetches rate history from the `/api/rates/history` endpoint; it falls back to browser `localStorage` when the backend has no data yet.
 
 ## Limitations
 
 - Liquidation price is shown as a primary-collateral approximation for multi-collateral positions.
 - Coverage depends on the supported market list and indexer availability.
 - Metrics are simplified monitoring estimates, not a substitute for protocol-native risk engines.
-- Borrow APR history is forward-looking: it is sampled from each dashboard refresh and stored in the current browser, so newly visited assets start with an empty chart.
+- Borrow APR history is forward-looking: the server begins recording from the first poll after deployment, so newly monitored wallets start with an empty chart.
 - GitHub Pages deployments require proper repository secrets if API keys are needed at build time.

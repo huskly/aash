@@ -43,6 +43,7 @@ Backend server notes:
 - Backend Graph/CoinGecko keys are read from `VITE_THE_GRAPH_API_KEY` and `VITE_COINGECKO_API_KEY` (legacy non-`VITE_` names still work as fallback).
 - `POST /api/status/refresh` forces an immediate monitor recomputation and returns fresh `/api/status` payload.
 - `GET /api/reserves/telemetry?market=<market>&asset=<address>&symbol=<optional>` returns live on-chain reserve utilization and interest-rate-strategy parameters for the selected borrowed asset.
+- `GET /api/rates/history?wallet=<address>&loanId=<id>&from=<epochMs>&to=<epochMs>` returns historical borrow/supply rate samples for a given wallet and loan, stored in SQLite (`packages/server/data/rates.db`). Rates are recorded every 15 minutes during the monitor poll cycle with 180-day retention.
 - Telegram `/status` includes portfolio average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and repay coverage (USD and %) alongside per-loan health factors. Telegram alerts include per-asset liquidation prices for each collateral asset, and multiple loan alerts for the same wallet are grouped into a single Telegram message per poll.
 - Loan-specific Telegram messages now also include the current weighted borrow rate percentage for the loan, covering `/status`, zone alerts, reminders, recoveries, all-clear messages, and watchdog notifications.
 - Telegram per-loan `Adjusted HF` in server status/alerts is the projected post-rescue HF after repaying with the wallet's full balance of matching debt tokens, capped by that loan's outstanding debt.
@@ -82,7 +83,7 @@ Backend server notes:
 Frontend notes:
 
 - `src/App.tsx` stores the last successfully loaded wallet under `localStorage['aave-monitor:last-wallet']`.
-- `src/App.tsx` also stores borrow APR history per market/asset in browser `localStorage` under the `aave-monitor:borrow-apr-history:*` prefix.
+- Borrow APR history is tracked server-side in SQLite (`packages/server/data/rates.db`) by the monitor poll loop and served via `/api/rates/history`. The frontend fetches from the API and falls back to browser `localStorage` (`aave-monitor:borrow-apr-history:*`) when the backend has no data yet.
 - `src/components/dashboard/SummaryCards.tsx` stores the top-level privacy toggle under `localStorage['aave-monitor:hide-top-level-values']` and uses it to blur `Total Debt` and `Total Assets`.
 - On page load, wallet resolution order is: query string (`wallet`, `address`, `walletAddress`) first, then saved local storage wallet.
 - Portfolio summary math is centralized in `computePortfolioSummary()` in `packages/aave-core/src/metrics.ts`.

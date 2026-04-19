@@ -10,13 +10,12 @@ import {
   type FetchState,
   type ReserveTelemetry,
 } from '@aave-monitor/core';
-import { fetchReserveTelemetry, fetchWalletAssetBalances } from './api/aaveMonitor';
 import {
-  appendBorrowRateSample,
-  buildBorrowRateHistoryKey,
-  readBorrowRateHistory,
-  writeBorrowRateHistory,
-} from './lib/borrowRateHistory';
+  fetchBorrowRateHistory,
+  fetchReserveTelemetry,
+  fetchWalletAssetBalances,
+} from './api/aaveMonitor';
+import { readBorrowRateHistory, buildBorrowRateHistoryKey } from './lib/borrowRateHistory';
 import { type BorrowRateSample } from './components/ReserveCharts';
 import { ServerSettings } from './components/ServerSettings';
 import { ToastProvider, ToastViewport } from './components/ui/toast';
@@ -152,7 +151,7 @@ export default function App() {
     if (!ETHEREUM_ADDRESS_REGEX.test(initialWallet)) return;
 
     hasAutoFetchedInitialWallet.current = true;
-    void fetchLoans(initialWallet);
+    void fetchLoans(initialWallet); // eslint-disable-line react-hooks/set-state-in-effect -- fetch-on-mount
   }, [wallet, fetchLoans]);
 
   useEffect(() => {
@@ -180,7 +179,7 @@ export default function App() {
 
   useEffect(() => {
     if (!selectedLoan || selectedLoan.borrowed.length === 0) {
-      setSelectedReserveTelemetry(null);
+      setSelectedReserveTelemetry(null); // eslint-disable-line react-hooks/set-state-in-effect -- resetting state on dependency change
       setReserveTelemetryError('');
       setBorrowRateHistory([]);
       return;
@@ -189,43 +188,35 @@ export default function App() {
     const primaryBorrow = selectedLoan.borrowed.reduce((max, borrowed) =>
       borrowed.usdValue > max.usdValue ? borrowed : max,
     );
-    const storageKey = buildBorrowRateHistoryKey(selectedLoan.marketName, primaryBorrow.address);
-    setBorrowRateHistory(readBorrowRateHistory(storageKey));
 
     let cancelled = false;
     setSelectedReserveTelemetry(null);
     setReserveTelemetryError('');
 
+    // Fetch rate history from backend, fall back to localStorage if unavailable.
+    // Use the resolved wallet from the loaded result, not the editable input field.
+    const resolvedWallet = result?.wallet ?? wallet.trim();
+    void fetchBorrowRateHistory(resolvedWallet, selectedLoan.id).then((apiSamples) => {
+      if (cancelled) return;
+      if (apiSamples.length > 0) {
+        setBorrowRateHistory(apiSamples);
+      } else {
+        const storageKey = buildBorrowRateHistoryKey(
+          selectedLoan.marketName,
+          primaryBorrow.address,
+        );
+        setBorrowRateHistory(readBorrowRateHistory(storageKey));
+      }
+    });
+
     if (selectedLoan.marketName.startsWith('morpho_')) {
-      // Morpho data comes from the API response — append a sample using the available values.
-      const morphoRate = primaryBorrow.borrowRate;
-      const morphoUtilization = selectedLoan.utilizationRate ?? 0;
-      setBorrowRateHistory((currentSamples) => {
-        const nextSamples = appendBorrowRateSample(currentSamples, {
-          timestamp: result?.lastUpdated ?? new Date().toISOString(),
-          variableBorrowRate: morphoRate,
-          utilizationRate: morphoUtilization,
-        });
-        writeBorrowRateHistory(storageKey, nextSamples);
-        return nextSamples;
-      });
       return;
     }
 
     void fetchReserveTelemetry(selectedLoan.marketName, primaryBorrow.address, primaryBorrow.symbol)
       .then((telemetry) => {
         if (cancelled) return;
-
         setSelectedReserveTelemetry(telemetry);
-        setBorrowRateHistory((currentSamples) => {
-          const nextSamples = appendBorrowRateSample(currentSamples, {
-            timestamp: telemetry.lastUpdateTimestamp,
-            variableBorrowRate: telemetry.variableBorrowRate,
-            utilizationRate: telemetry.utilizationRate,
-          });
-          writeBorrowRateHistory(storageKey, nextSamples);
-          return nextSamples;
-        });
       })
       .catch((telemetryError: unknown) => {
         if (cancelled) return;
@@ -240,7 +231,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [result?.lastUpdated, selectedLoan?.marketName, selectedLoan]);
+  }, [result?.lastUpdated, result?.wallet, selectedLoan?.marketName, selectedLoan, wallet]);
 
   const handleFetch = async (event: FormEvent) => {
     event.preventDefault();

@@ -196,7 +196,7 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
   }, []);
 
   useEffect(() => {
-    void fetchConfig();
+    void fetchConfig(); // eslint-disable-line react-hooks/set-state-in-effect -- fetch-on-mount
   }, [fetchConfig]);
 
   const saveConfig = async (updated: AlertConfig) => {

@@ -1,4 +1,30 @@
 import { type AssetPosition, type ReserveTelemetry } from '@aave-monitor/core';
+import type { BorrowRateSample } from '../components/ReserveCharts';
+
+type RateHistoryResponse = {
+  samples: Array<{ timestamp: number; borrowRate: number; supplyRate: number }>;
+};
+
+export async function fetchBorrowRateHistory(
+  wallet: string,
+  loanId: string,
+  fromMs?: number,
+  toMs?: number,
+): Promise<BorrowRateSample[]> {
+  const params = new URLSearchParams({ wallet, loanId });
+  if (fromMs != null) params.set('from', String(fromMs));
+  if (toMs != null) params.set('to', String(toMs));
+
+  const res = await fetch(`/api/rates/history?${params.toString()}`);
+  if (!res.ok) return [];
+
+  const data = (await res.json()) as RateHistoryResponse;
+  return data.samples.map((s) => ({
+    timestamp: new Date(s.timestamp).toISOString(),
+    variableBorrowRate: s.borrowRate,
+    utilizationRate: 0,
+  }));
+}
 
 export async function fetchWalletAssetBalances(
   wallet: string,
