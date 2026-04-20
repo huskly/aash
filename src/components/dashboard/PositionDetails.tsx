@@ -76,7 +76,7 @@ export function PositionDetailsSection({
           reserve={reserveTelemetry}
         />
 
-        <MetricsGrid computed={computed} />
+        <MetricsGrid computed={computed} selectedLoan={selectedLoan} />
         <MonitoringChecklistCard computed={computed} />
         <SensitivityCard computed={computed} />
       </div>
@@ -237,7 +237,13 @@ function LiquidationKpi({ computed }: { computed: Computed }) {
   );
 }
 
-function MetricsGrid({ computed }: { computed: Computed }) {
+function MetricsGrid({
+  computed,
+  selectedLoan,
+}: {
+  computed: Computed;
+  selectedLoan: LoanPosition | null;
+}) {
   return (
     <div className="grid grid-cols-2 gap-4 max-[980px]:grid-cols-1">
       <Card>
@@ -254,6 +260,16 @@ function MetricsGrid({ computed }: { computed: Computed }) {
           />
           <Row label="Borrow power used" value={fmtPct(computed.borrowPowerUsed)} />
           <Row label="Borrow headroom" value={fmtUSD(computed.borrowHeadroom, 0)} />
+          <Row
+            label="Liq. price"
+            value={Number.isFinite(computed.liqPrice) ? fmtUSD(computed.liqPrice, 2) : '—'}
+          />
+          <Row
+            label="Utilization"
+            value={
+              selectedLoan?.utilizationRate == null ? '—' : fmtPct(selectedLoan.utilizationRate)
+            }
+          />
           <Separator />
           <Row label="Liquidation threshold" value={fmtPct(computed.lt)} />
           <Row label="LTV at liquidation" value={fmtPct(computed.ltvAtLiq)} />

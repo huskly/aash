@@ -25,7 +25,7 @@ type LoanSortKey =
   | 'healthFactor'
   | 'rate'
   | 'ltv'
-  | 'liquidationPrice';
+  | 'utilization';
 
 type LoanSortConfig = {
   key: LoanSortKey;
@@ -53,7 +53,7 @@ const loanSortColumns = [
   { key: 'healthFactor', label: 'HF', align: 'right', defaultDirection: 'asc' },
   { key: 'rate', label: 'Rate', align: 'right', defaultDirection: 'desc' },
   { key: 'ltv', label: 'LTV', align: 'right', defaultDirection: 'desc' },
-  { key: 'liquidationPrice', label: 'Liq. Price', align: 'right', defaultDirection: 'asc' },
+  { key: 'utilization', label: 'Utilization %', align: 'right', defaultDirection: 'desc' },
 ] satisfies LoanSortColumn[];
 
 function getLoanSortValue(row: LoanRow, key: LoanSortKey): string | number {
@@ -76,8 +76,8 @@ function getLoanSortValue(row: LoanRow, key: LoanSortKey): string | number {
       return metrics.rBorrow;
     case 'ltv':
       return metrics.ltv;
-    case 'liquidationPrice':
-      return metrics.liqPrice;
+    case 'utilization':
+      return loan.utilizationRate ?? Number.NaN;
   }
 }
 
@@ -229,13 +229,7 @@ export function LoanPositionsTable({
                   <td className="px-4 py-3 text-right tabular-nums">{fmtPct(metrics.rBorrow)}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{fmtPct(metrics.ltv)}</td>
                   <td className="px-4 py-3 text-right tabular-nums">
-                    {metrics.assetLiquidations.length === 0
-                      ? '—'
-                      : metrics.assetLiquidations.length === 1
-                        ? fmtUSD(metrics.assetLiquidations[0]!.liqPrice, 2)
-                        : metrics.assetLiquidations
-                            .map((asset) => `${asset.symbol}: ${fmtUSD(asset.liqPrice, 0)}`)
-                            .join(' | ')}
+                    {loan.utilizationRate == null ? '—' : fmtPct(loan.utilizationRate)}
                   </td>
                 </tr>
               ))}
