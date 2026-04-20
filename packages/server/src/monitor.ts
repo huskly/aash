@@ -32,6 +32,7 @@ export type LoanAlertState = {
   healthFactor: number;
   adjustedHF: number;
   borrowRate: number;
+  utilizationRate?: number;
   debtUsd: number;
   collateralUsd: number;
   maxBorrowByLtvUsd: number;
@@ -358,6 +359,7 @@ export class Monitor {
       const existing = this.states.get(stateKey);
 
       if (!existing) {
+        const utilizationRate = this.resolveUtilization(loan, telemetryMap);
         this.states.set(stateKey, {
           loanId: loan.id,
           marketName: loan.marketName,
@@ -365,6 +367,7 @@ export class Monitor {
           healthFactor: metrics.healthFactor,
           adjustedHF,
           borrowRate: metrics.rBorrow,
+          utilizationRate,
           debtUsd: metrics.debt,
           collateralUsd: metrics.collateralUSD,
           maxBorrowByLtvUsd: metrics.maxBorrowByLTV,
@@ -384,6 +387,7 @@ export class Monitor {
       existing.healthFactor = metrics.healthFactor;
       existing.adjustedHF = adjustedHF;
       existing.borrowRate = metrics.rBorrow;
+      existing.utilizationRate = this.resolveUtilization(loan, telemetryMap);
       existing.debtUsd = metrics.debt;
       existing.collateralUsd = metrics.collateralUSD;
       existing.maxBorrowByLtvUsd = metrics.maxBorrowByLTV;

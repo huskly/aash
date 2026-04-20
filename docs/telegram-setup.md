@@ -89,7 +89,7 @@ curl -X POST http://localhost:3001/api/status/refresh
 
 Telegram bot commands:
 
-- `/status` prints current loans plus a portfolio summary (average health factor, Net APY, total collateral, total debt, portfolio borrow power used, repay coverage in USD and %). Each loan row also includes the current borrow rate percentage. Morpho Blue market collateral is risk collateral only, so it does not add market supply APY to carry.
+- `/status` prints current loans plus a portfolio summary (average health factor, Net APY, total collateral, total debt, portfolio borrow power used, repay coverage in USD and %). Each loan row also includes the current borrow rate percentage and utilization percentage when available. Morpho Blue market collateral is risk collateral only, so it does not add market supply APY to carry.
 - `/status` prints each loan with its human-readable market name; Morpho entries show labels like `morpho_cbBTC_USDC` instead of raw market IDs.
 - `/refresh` refreshes monitor state first, then prints the same enriched status output.
 - `/watchdog` prints watchdog mode, thresholds, and recent watchdog actions.

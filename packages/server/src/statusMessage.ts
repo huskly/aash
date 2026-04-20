@@ -24,6 +24,8 @@ export function formatStatusMessage(
     `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   const fmtPct = (value: number): string => `${(value * 100).toFixed(2)}%`;
   const fmtBorrowRate = (value: number): string => (Number.isFinite(value) ? fmtPct(value) : 'N/A');
+  const fmtUtilization = (value?: number): string =>
+    value !== undefined && Number.isFinite(value) ? fmtPct(value) : 'N/A';
   const fmtDateWithRelative = (value: number): string =>
     `${new Date(value).toLocaleString()} (${formatDistanceToNowStrict(value, { addSuffix: true })})`;
   const visibleStates = status.states.filter(
@@ -86,7 +88,7 @@ export function formatStatusMessage(
     const adjHf = Number.isFinite(state.adjustedHF) ? state.adjustedHF.toFixed(2) : '∞';
     lines.push(
       `${state.currentZone.emoji} <code>${addr}</code> · ${state.marketName}`,
-      `   HF: <b>${hf}</b> · Adjusted HF: <b>${adjHf}</b> · Rate: <b>${fmtBorrowRate(state.borrowRate)}</b> · Zone: ${state.currentZone.label}`,
+      `   HF: <b>${hf}</b> · Adjusted HF: <b>${adjHf}</b> · Rate: <b>${fmtBorrowRate(state.borrowRate)}</b> · Utilization: <b>${fmtUtilization(state.utilizationRate)}</b> · Zone: ${state.currentZone.label}`,
       '',
     );
   }
