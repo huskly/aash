@@ -71,6 +71,8 @@ export type MorphoVaultPosition = {
   totalAssetsUsd: number;
   apy: number;
   netApy: number;
+  /** Cumulative earned supply interest (USD) for this vault position when available from Morpho. */
+  accruedEarningsUsd?: number;
 };
 
 export type LoanPosition = {

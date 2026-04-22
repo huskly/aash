@@ -41,6 +41,14 @@ const rateHistoryQuerySchema = z.object({
   to: z.coerce.number().int().optional(),
 });
 
+const interestHistoryQuerySchema = z.object({
+  wallet: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  positionId: z.string().min(1),
+  kind: z.enum(['loan', 'vault']),
+  from: z.coerce.number().int().optional(),
+  to: z.coerce.number().int().optional(),
+});
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT_ENV_PATH = join(__dirname, '..', '..', '..', '.env');
 
@@ -253,6 +261,23 @@ app.get('/api/rates/history', (req, res) => {
   const { wallet, loanId, from, to } = parsed.data;
   const samples = rateHistoryDb.querySamples(wallet, loanId, from, to);
   res.json({ samples });
+});
+
+app.get('/api/interest/history', (req, res) => {
+  const parsed = interestHistoryQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid query parameters' });
+    return;
+  }
+  const { wallet, positionId, kind, from, to } = parsed.data;
+  const rows = rateHistoryDb.queryInterestSnapshots(wallet, positionId, kind, from, to);
+  const snapshots = rows.map((row, index) => ({
+    timestamp: row.timestamp,
+    cumulativeUsd: row.cumulativeUsd,
+    deltaUsd: index === 0 ? 0 : row.cumulativeUsd - (rows[index - 1]?.cumulativeUsd ?? 0),
+    label: row.label,
+  }));
+  res.json({ snapshots });
 });
 
 app.get('/api/health', (_req, res) => {

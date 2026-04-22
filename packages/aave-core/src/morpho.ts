@@ -85,6 +85,7 @@ export type RawMorphoVaultV2Position = {
   assets: string;
   assetsUsd: number | null;
   shares: string;
+  pnlUsd?: number | null;
 };
 
 export type RawMorphoVaultPosition = {
@@ -93,6 +94,7 @@ export type RawMorphoVaultPosition = {
     assets: string;
     assetsUsd: number | null;
     shares: string;
+    pnlUsd?: number | null;
   };
 };
 
@@ -183,6 +185,7 @@ const MORPHO_POSITIONS_QUERY = `
         assets
         assetsUsd
         shares
+        pnlUsd
       }
       vaultPositions {
         vault {
@@ -206,6 +209,7 @@ const MORPHO_POSITIONS_QUERY = `
           assets
           assetsUsd
           shares
+          pnlUsd
         }
       }
     }
@@ -409,6 +413,7 @@ function buildMorphoVaultPosition(
   rawAssets: string,
   rawAssetsUsd: number | null,
   rawShares: string,
+  pnlUsd?: number | null,
 ): MorphoVaultPosition[] {
   const amount = parseAmount(rawAssets, vault.asset.decimals);
   const shareAmount = parseAmount(rawShares, vault.asset.decimals);
@@ -446,19 +451,26 @@ function buildMorphoVaultPosition(
       totalAssetsUsd: usdValue,
       apy,
       netApy,
+      accruedEarningsUsd: pnlUsd ?? undefined,
     },
   ];
 }
 
 function buildMorphoVaultV2Positions(positions: RawMorphoVaultV2Position[]): MorphoVaultPosition[] {
   return positions.flatMap((pos) =>
-    buildMorphoVaultPosition(pos.vault, pos.assets, pos.assetsUsd, pos.shares),
+    buildMorphoVaultPosition(pos.vault, pos.assets, pos.assetsUsd, pos.shares, pos.pnlUsd),
   );
 }
 
 function buildMorphoVaultPositions(positions: RawMorphoVaultPosition[]): MorphoVaultPosition[] {
   return positions.flatMap((pos) =>
-    buildMorphoVaultPosition(pos.vault, pos.state.assets, pos.state.assetsUsd, pos.state.shares),
+    buildMorphoVaultPosition(
+      pos.vault,
+      pos.state.assets,
+      pos.state.assetsUsd,
+      pos.state.shares,
+      pos.state.pnlUsd,
+    ),
   );
 }
 

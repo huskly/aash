@@ -26,6 +26,31 @@ export async function fetchBorrowRateHistory(
   }));
 }
 
+export type InterestSnapshot = {
+  timestamp: number;
+  cumulativeUsd: number;
+  deltaUsd: number;
+  label: string | null;
+};
+
+export async function fetchInterestHistory(
+  wallet: string,
+  positionId: string,
+  kind: 'loan' | 'vault',
+  fromMs?: number,
+  toMs?: number,
+): Promise<InterestSnapshot[]> {
+  const params = new URLSearchParams({ wallet, positionId, kind });
+  if (fromMs != null) params.set('from', String(fromMs));
+  if (toMs != null) params.set('to', String(toMs));
+
+  const res = await fetch(`/api/interest/history?${params.toString()}`);
+  if (!res.ok) return [];
+
+  const data = (await res.json()) as { snapshots: InterestSnapshot[] };
+  return data.snapshots;
+}
+
 export async function fetchWalletAssetBalances(
   wallet: string,
   assets: AssetPosition[],

@@ -9,7 +9,7 @@ import {
   isWorsening,
   isImproving,
   fetchFromAaveSubgraph,
-  fetchFromMorphoApi,
+  fetchMorphoPositions,
   fetchTokenBalances,
   fetchUsdPrices,
   buildLoanPositions,
@@ -235,10 +235,12 @@ export class Monitor {
       'Prices resolved',
     );
 
-    const morphoLoans = await fetchFromMorphoApi(address).catch(() => {
+    const morphoPositions = await fetchMorphoPositions(address).catch(() => {
       logger.warn({ wallet: this.shortAddr(address) }, 'Morpho positions unavailable');
-      return [];
+      return { marketLoans: [], vaultPositions: [] };
     });
+    const morphoLoans = morphoPositions.marketLoans;
+    const morphoVaults = morphoPositions.vaultPositions;
     const loans = [...buildLoanPositions(reserves, prices), ...morphoLoans];
 
     // Fetch reserve telemetry for Aave loans when utilization alerts are enabled.
@@ -576,6 +578,55 @@ export class Monitor {
     // Watchdog evaluation pass — runs after alerts so notifications always go out first
     for (const loan of loans) {
       await this.watchdog.evaluate(loan, address);
+    }
+
+    // Daily cumulative-interest snapshots for Morpho positions.
+    // Gated at 23h to allow a bit of drift between polls.
+    if (this.rateHistoryDb) {
+      const MIN_SNAPSHOT_INTERVAL_MS = 23 * 60 * 60 * 1000;
+      for (const loan of morphoLoans) {
+        if (loan.accruedBorrowInterestUsd == null) continue;
+        try {
+          const last = this.rateHistoryDb.getLastInterestSnapshotTs(address, loan.id, 'loan');
+          if (last == null || now - last >= MIN_SNAPSHOT_INTERVAL_MS) {
+            this.rateHistoryDb.appendInterestSnapshot(
+              address,
+              loan.id,
+              'loan',
+              loan.marketName,
+              now,
+              loan.accruedBorrowInterestUsd,
+            );
+          }
+        } catch (err) {
+          logger.warn({ err, loan: loan.id }, 'Failed to record loan interest snapshot');
+        }
+      }
+      for (const vault of morphoVaults) {
+        if (vault.accruedEarningsUsd == null) continue;
+        try {
+          const last = this.rateHistoryDb.getLastInterestSnapshotTs(
+            address,
+            vault.vaultAddress,
+            'vault',
+          );
+          if (last == null || now - last >= MIN_SNAPSHOT_INTERVAL_MS) {
+            this.rateHistoryDb.appendInterestSnapshot(
+              address,
+              vault.vaultAddress,
+              'vault',
+              vault.vaultName,
+              now,
+              vault.accruedEarningsUsd,
+            );
+          }
+        } catch (err) {
+          logger.warn(
+            { err, vault: vault.vaultAddress },
+            'Failed to record vault interest snapshot',
+          );
+        }
+      }
     }
 
     const walletPrefix = `${address}-`;

@@ -7,6 +7,8 @@ import {
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -17,6 +19,7 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
+import type { InterestSnapshot } from '../api/aaveMonitor';
 
 export type BorrowRateSample = {
   timestamp: string;
@@ -526,6 +529,179 @@ export function BorrowRateHistoryCard({
           <div className="rounded-lg border border-border bg-accent px-4 py-5 text-sm text-muted-foreground">
             Borrow APR history needs at least two reserve snapshots. Keep the dashboard running and
             refreshing to build the chart over time.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+type InterestHistoryWindow = '7d' | '30d' | '90d' | '180d';
+
+const INTEREST_WINDOWS: Array<{ value: InterestHistoryWindow; label: string; durationMs: number }> =
+  [
+    { value: '7d', label: '7d', durationMs: 7 * 24 * 60 * 60 * 1000 },
+    { value: '30d', label: '30d', durationMs: 30 * 24 * 60 * 60 * 1000 },
+    { value: '90d', label: '90d', durationMs: 90 * 24 * 60 * 60 * 1000 },
+    { value: '180d', label: '6m', durationMs: 180 * 24 * 60 * 60 * 1000 },
+  ];
+
+function fmtUsd(value: number): string {
+  const abs = Math.abs(value);
+  const digits = abs >= 100 ? 0 : abs >= 1 ? 2 : 4;
+  return `${value < 0 ? '-' : ''}$${abs.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`;
+}
+
+export function InterestAccrualHistoryCard({
+  snapshots,
+  kind,
+  title,
+  description,
+  currentTimeMs,
+}: {
+  snapshots: InterestSnapshot[];
+  kind: 'loan' | 'vault';
+  title?: string;
+  description?: string;
+  currentTimeMs: number;
+}) {
+  const [windowValue, setWindowValue] = useState<InterestHistoryWindow>('30d');
+
+  const filteredSnapshots = useMemo(() => {
+    const selected = INTEREST_WINDOWS.find((entry) => entry.value === windowValue);
+    if (!selected) return snapshots;
+    const cutoff = currentTimeMs - selected.durationMs;
+    return snapshots.filter((s) => s.timestamp >= cutoff);
+  }, [currentTimeMs, snapshots, windowValue]);
+
+  const { data, totalDelta, avgDelta, maxDelta, maxCumulative } = useMemo(() => {
+    if (filteredSnapshots.length === 0) {
+      return { data: [], totalDelta: 0, avgDelta: 0, maxDelta: 0, maxCumulative: 0 };
+    }
+    // Recompute deltas within the filtered window (first row is baseline, delta=0).
+    const points = filteredSnapshots.map((s, i) => ({
+      timestamp: s.timestamp,
+      deltaUsd: i === 0 ? 0 : s.cumulativeUsd - (filteredSnapshots[i - 1]?.cumulativeUsd ?? 0),
+      cumulativeUsd: s.cumulativeUsd,
+    }));
+    const deltasAfterFirst = points.slice(1).map((p) => p.deltaUsd);
+    const total = deltasAfterFirst.reduce((sum, v) => sum + v, 0);
+    const avg = deltasAfterFirst.length > 0 ? total / deltasAfterFirst.length : 0;
+    const max = deltasAfterFirst.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+    const maxCum = points.reduce((m, p) => Math.max(m, Math.abs(p.cumulativeUsd)), 0);
+    return { data: points, totalDelta: total, avgDelta: avg, maxDelta: max, maxCumulative: maxCum };
+  }, [filteredSnapshots]);
+
+  const xTickFormatter = useMemo(() => {
+    return (v: number) => new Date(v).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }, []);
+
+  const barColor = kind === 'loan' ? CHART_COLORS.borrow : '#5cd3a8';
+  const defaultTitle = kind === 'loan' ? 'Daily Borrow Interest' : 'Daily Earnings';
+  const totalLabel = kind === 'loan' ? 'Accrued (window)' : 'Earned (window)';
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-3">
+        <div>
+          <CardTitle>{title ?? defaultTitle}</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {description ??
+              (kind === 'loan'
+                ? 'Daily borrow interest accrued, derived from Morpho cumulative PnL.'
+                : 'Daily supply earnings, derived from Morpho cumulative vault PnL.')}
+          </p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-1">
+          {INTEREST_WINDOWS.map((entry) => (
+            <Button
+              key={entry.value}
+              type="button"
+              size="sm"
+              variant={windowValue === entry.value ? 'default' : 'secondary'}
+              onClick={() => setWindowValue(entry.value)}
+            >
+              {entry.label}
+            </Button>
+          ))}
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        {data.length >= 2 ? (
+          <>
+            <div className="grid gap-1 sm:grid-cols-3">
+              <Stat label={totalLabel} value={fmtUsd(totalDelta)} />
+              <Stat label="Daily avg" value={fmtUsd(avgDelta)} />
+              <Stat label="Max day" value={fmtUsd(maxDelta)} />
+            </div>
+
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart
+                data={data}
+                style={CHART_STYLE}
+                margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
+              >
+                <CartesianGrid strokeDasharray="5 5" stroke={CHART_COLORS.grid} vertical={false} />
+                <XAxis
+                  dataKey="timestamp"
+                  type="number"
+                  scale="time"
+                  domain={['dataMin', 'dataMax']}
+                  tickFormatter={xTickFormatter}
+                  tick={{ fill: CHART_COLORS.axis, fontSize: 12 }}
+                  tickLine={false}
+                  axisLine={{ stroke: CHART_COLORS.grid }}
+                  minTickGap={30}
+                />
+                <YAxis
+                  tickFormatter={(v: number) => fmtUsd(v)}
+                  tick={{ fill: CHART_COLORS.axis, fontSize: 12 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={60}
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const p = payload[0];
+                    const ts = p?.payload?.timestamp as number | undefined;
+                    const delta = Number(p?.payload?.deltaUsd ?? 0);
+                    const cumulative = Number(p?.payload?.cumulativeUsd ?? 0);
+                    return (
+                      <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">
+                        {ts && (
+                          <p className="mb-1 font-medium text-muted-foreground">
+                            {new Date(ts).toLocaleDateString([], {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })}
+                          </p>
+                        )}
+                        <p style={{ color: barColor }} className="font-semibold">
+                          {kind === 'loan' ? 'Interest' : 'Earnings'}: {fmtUsd(delta)}
+                        </p>
+                        <p className="text-muted-foreground">Cumulative: {fmtUsd(cumulative)}</p>
+                      </div>
+                    );
+                  }}
+                  cursor={{ fill: 'rgba(139, 158, 179, 0.15)' }}
+                />
+                <ReferenceLine y={0} stroke={CHART_COLORS.grid} />
+                <Bar dataKey="deltaUsd" name="Daily" fill={barColor} radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <p className="text-xs text-muted-foreground">
+              Cumulative at end of window: {fmtUsd(maxCumulative)}
+            </p>
+          </>
+        ) : (
+          <div className="rounded-lg border border-border bg-accent px-4 py-5 text-sm text-muted-foreground">
+            Need at least two daily snapshots to chart interest. Keep the server running — snapshots
+            are recorded every ~24h.
           </div>
         )}
       </CardContent>

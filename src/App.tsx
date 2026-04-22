@@ -12,11 +12,13 @@ import {
 } from '@aave-monitor/core';
 import {
   fetchBorrowRateHistory,
+  fetchInterestHistory,
   fetchReserveTelemetry,
   fetchWalletAssetBalances,
+  type InterestSnapshot,
 } from './api/aaveMonitor';
 import { readBorrowRateHistory, buildBorrowRateHistoryKey } from './lib/borrowRateHistory';
-import { type BorrowRateSample } from './components/ReserveCharts';
+import { InterestAccrualHistoryCard, type BorrowRateSample } from './components/ReserveCharts';
 import { ServerSettings } from './components/ServerSettings';
 import { ToastProvider, ToastViewport } from './components/ui/toast';
 import { type ToastMessage } from './components/ui/toast-context';
@@ -65,6 +67,10 @@ export default function App() {
   );
   const [reserveTelemetryError, setReserveTelemetryError] = useState('');
   const [borrowRateHistory, setBorrowRateHistory] = useState<BorrowRateSample[]>([]);
+  const [loanInterestHistory, setLoanInterestHistory] = useState<InterestSnapshot[]>([]);
+  const [vaultInterestHistories, setVaultInterestHistories] = useState<
+    Record<string, InterestSnapshot[]>
+  >({});
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const hasAutoFetchedInitialWallet = useRef(false);
@@ -182,6 +188,7 @@ export default function App() {
       setSelectedReserveTelemetry(null); // eslint-disable-line react-hooks/set-state-in-effect -- resetting state on dependency change
       setReserveTelemetryError('');
       setBorrowRateHistory([]);
+      setLoanInterestHistory([]);
       return;
     }
 
@@ -210,8 +217,14 @@ export default function App() {
     });
 
     if (selectedLoan.marketName.startsWith('morpho_')) {
+      void fetchInterestHistory(resolvedWallet, selectedLoan.id, 'loan').then((snapshots) => {
+        if (cancelled) return;
+        setLoanInterestHistory(snapshots);
+      });
       return;
     }
+
+    setLoanInterestHistory([]);
 
     void fetchReserveTelemetry(selectedLoan.marketName, primaryBorrow.address, primaryBorrow.symbol)
       .then((telemetry) => {
@@ -232,6 +245,27 @@ export default function App() {
       cancelled = true;
     };
   }, [result?.lastUpdated, result?.wallet, selectedLoan?.marketName, selectedLoan, wallet]);
+
+  useEffect(() => {
+    const resolvedWallet = result?.wallet;
+    if (!resolvedWallet || !result?.vaults?.length) {
+      setVaultInterestHistories({}); // eslint-disable-line react-hooks/set-state-in-effect -- resetting on dependency change
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(
+      result.vaults.map(async (vault) => {
+        const snapshots = await fetchInterestHistory(resolvedWallet, vault.vaultAddress, 'vault');
+        return [vault.vaultAddress, snapshots] as const;
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setVaultInterestHistories(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [result?.wallet, result?.vaults, result?.lastUpdated]);
 
   const handleFetch = async (event: FormEvent) => {
     event.preventDefault();
@@ -304,9 +338,24 @@ export default function App() {
                     onSelectLoan={setSelectedLoanId}
                   />
                   <VaultPositionsTable vaults={vaultRows} />
+                  {vaultRows.length > 0 ? (
+                    <section className="mt-4 grid gap-4">
+                      {vaultRows.map((vault) => (
+                        <InterestAccrualHistoryCard
+                          key={vault.vaultAddress}
+                          kind="vault"
+                          title={`${vault.vaultName} — Daily Earnings`}
+                          description={`Realized earnings for ${vault.vaultSymbol} derived from Morpho cumulative PnL.`}
+                          snapshots={vaultInterestHistories[vault.vaultAddress] ?? []}
+                          currentTimeMs={now}
+                        />
+                      ))}
+                    </section>
+                  ) : null}
                   <SelectedLoanLabel loan={selectedLoan} />
                   <PositionDetailsSection
                     borrowRateHistory={borrowRateHistory}
+                    loanInterestHistory={loanInterestHistory}
                     computed={computed}
                     now={now}
                     reserveTelemetry={selectedReserveTelemetry}

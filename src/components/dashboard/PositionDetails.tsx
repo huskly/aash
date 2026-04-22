@@ -2,10 +2,12 @@ import { AlertTriangle, Info, ShieldCheck } from 'lucide-react';
 import { clamp, healthLabel, type Computed, type LoanPosition } from '@aave-monitor/core';
 import {
   BorrowRateHistoryCard,
+  InterestAccrualHistoryCard,
   MorphoIrmCard,
   type BorrowRateSample,
   UtilizationCurveCard,
 } from '../ReserveCharts';
+import type { InterestSnapshot } from '../../api/aaveMonitor';
 import { Badge } from '../ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Separator } from '../ui/separator';
@@ -27,6 +29,7 @@ export function SelectedLoanLabel({ loan }: { loan: LoanPosition | null }) {
 
 export function PositionDetailsSection({
   borrowRateHistory,
+  loanInterestHistory,
   computed,
   now,
   reserveTelemetry,
@@ -34,12 +37,14 @@ export function PositionDetailsSection({
   selectedLoan,
 }: {
   borrowRateHistory: BorrowRateSample[];
+  loanInterestHistory: InterestSnapshot[];
   computed: Computed;
   now: number;
   reserveTelemetry: ReserveTelemetry | null;
   reserveTelemetryError: string;
   selectedLoan: LoanPosition | null;
 }) {
+  const isMorphoLoan = selectedLoan?.marketName.startsWith('morpho_') ?? false;
   return (
     <section className="mt-2 grid gap-4 [grid-template-columns:minmax(320px,0.95fr)_minmax(0,2fr)] max-[980px]:grid-cols-1">
       <PositionSnapshotCard computed={computed} selectedLoan={selectedLoan} />
@@ -75,6 +80,14 @@ export function PositionDetailsSection({
           samples={borrowRateHistory}
           reserve={reserveTelemetry}
         />
+
+        {isMorphoLoan ? (
+          <InterestAccrualHistoryCard
+            kind="loan"
+            snapshots={loanInterestHistory}
+            currentTimeMs={now}
+          />
+        ) : null}
 
         <MetricsGrid computed={computed} selectedLoan={selectedLoan} />
         <MonitoringChecklistCard computed={computed} />
