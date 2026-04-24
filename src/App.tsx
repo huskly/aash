@@ -56,6 +56,7 @@ function getInitialWallet(): string {
 export default function App() {
   const [wallet, setWallet] = useState(() => getInitialWallet());
   const [selectedLoanId, setSelectedLoanId] = useState<string>('');
+  const [selectedVaultAddress, setSelectedVaultAddress] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [result, setResult] = useState<FetchState | null>(null);
@@ -78,8 +79,14 @@ export default function App() {
 
   const selectedLoan = useMemo(() => {
     if (!result || result.loans.length === 0) return null;
+    if (selectedVaultAddress) return null;
     return result.loans.find((loan) => loan.id === selectedLoanId) ?? result.loans[0] ?? null;
-  }, [result, selectedLoanId]);
+  }, [result, selectedLoanId, selectedVaultAddress]);
+
+  const selectedVault = useMemo(() => {
+    if (!result || !selectedVaultAddress) return null;
+    return result.vaults.find((vault) => vault.vaultAddress === selectedVaultAddress) ?? null;
+  }, [result, selectedVaultAddress]);
 
   const computed = useMemo(() => computeLoanMetrics(selectedLoan), [selectedLoan]);
   const portfolio = useMemo(() => {
@@ -138,9 +145,20 @@ export default function App() {
       } catch {
         // Ignore storage errors (e.g. storage disabled).
       }
-      setSelectedLoanId((previousLoanId) =>
-        loans.some((loan) => loan.id === previousLoanId) ? previousLoanId : (loans[0]?.id ?? ''),
-      );
+      setSelectedVaultAddress((previousVaultAddress) => {
+        if (
+          previousVaultAddress &&
+          morpho.vaultPositions.some((v) => v.vaultAddress === previousVaultAddress)
+        ) {
+          return previousVaultAddress;
+        }
+        if (loans.length > 0) return '';
+        return morpho.vaultPositions[0]?.vaultAddress ?? '';
+      });
+      setSelectedLoanId((previousLoanId) => {
+        if (loans.some((loan) => loan.id === previousLoanId)) return previousLoanId;
+        return loans[0]?.id ?? '';
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch loan data.';
       setError(message);
@@ -334,34 +352,52 @@ export default function App() {
 
                   <LoanPositionsTable
                     rows={loanRows}
-                    selectedLoanId={selectedLoanId}
-                    onSelectLoan={setSelectedLoanId}
+                    selectedLoanId={selectedLoan?.id ?? ''}
+                    onSelectLoan={(loanId) => {
+                      setSelectedVaultAddress('');
+                      setSelectedLoanId(loanId);
+                    }}
                   />
-                  <VaultPositionsTable vaults={vaultRows} />
-                  {vaultRows.length > 0 ? (
-                    <section className="mt-4 grid gap-4">
-                      {vaultRows.map((vault) => (
+                  <VaultPositionsTable
+                    vaults={vaultRows}
+                    selectedVaultAddress={selectedVaultAddress}
+                    onSelectVault={(vaultAddress) => {
+                      setSelectedLoanId('');
+                      setSelectedVaultAddress(vaultAddress);
+                    }}
+                  />
+                  {selectedVault ? (
+                    <>
+                      <p className="mt-4 text-sm text-muted-foreground">
+                        Showing details for{' '}
+                        <span className="font-semibold text-foreground">
+                          {selectedVault.vaultName} · {selectedVault.asset.symbol}
+                        </span>
+                      </p>
+                      <section className="mt-2 grid gap-4">
                         <InterestAccrualHistoryCard
-                          key={vault.vaultAddress}
                           kind="vault"
-                          title={`${vault.vaultName} — Daily Earnings`}
-                          description={`Realized earnings for ${vault.vaultSymbol} derived from Morpho cumulative PnL.`}
-                          snapshots={vaultInterestHistories[vault.vaultAddress] ?? []}
+                          title={`${selectedVault.vaultName} — Daily Earnings`}
+                          description={`Realized earnings for ${selectedVault.vaultSymbol} derived from Morpho cumulative PnL.`}
+                          snapshots={vaultInterestHistories[selectedVault.vaultAddress] ?? []}
                           currentTimeMs={now}
                         />
-                      ))}
-                    </section>
-                  ) : null}
-                  <SelectedLoanLabel loan={selectedLoan} />
-                  <PositionDetailsSection
-                    borrowRateHistory={borrowRateHistory}
-                    loanInterestHistory={loanInterestHistory}
-                    computed={computed}
-                    now={now}
-                    reserveTelemetry={selectedReserveTelemetry}
-                    reserveTelemetryError={reserveTelemetryError}
-                    selectedLoan={selectedLoan}
-                  />
+                      </section>
+                    </>
+                  ) : (
+                    <>
+                      <SelectedLoanLabel loan={selectedLoan} />
+                      <PositionDetailsSection
+                        borrowRateHistory={borrowRateHistory}
+                        loanInterestHistory={loanInterestHistory}
+                        computed={computed}
+                        now={now}
+                        reserveTelemetry={selectedReserveTelemetry}
+                        reserveTelemetryError={reserveTelemetryError}
+                        selectedLoan={selectedLoan}
+                      />
+                    </>
+                  )}
                 </>
               ) : (
                 <Card className="mt-4">

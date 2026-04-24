@@ -241,7 +241,15 @@ export function LoanPositionsTable({
   );
 }
 
-export function VaultPositionsTable({ vaults }: { vaults: MorphoVaultPosition[] }) {
+export function VaultPositionsTable({
+  vaults,
+  selectedVaultAddress,
+  onSelectVault,
+}: {
+  vaults: MorphoVaultPosition[];
+  selectedVaultAddress: string;
+  onSelectVault: (vaultAddress: string) => void;
+}) {
   if (vaults.length === 0) return null;
 
   return (
@@ -264,7 +272,12 @@ export function VaultPositionsTable({ vaults }: { vaults: MorphoVaultPosition[] 
             </thead>
             <tbody>
               {vaults.map((vault) => (
-                <VaultRow key={vault.id} vault={vault} />
+                <VaultRow
+                  key={vault.id}
+                  vault={vault}
+                  isSelected={vault.vaultAddress === selectedVaultAddress}
+                  onSelect={() => onSelectVault(vault.vaultAddress)}
+                />
               ))}
             </tbody>
           </table>
@@ -274,9 +287,23 @@ export function VaultPositionsTable({ vaults }: { vaults: MorphoVaultPosition[] 
   );
 }
 
-function VaultRow({ vault }: { vault: MorphoVaultPosition }) {
+function VaultRow({
+  vault,
+  isSelected,
+  onSelect,
+}: {
+  vault: MorphoVaultPosition;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
   return (
-    <tr className="border-b border-border">
+    <tr
+      onClick={onSelect}
+      className={cn(
+        'cursor-pointer border-b border-border transition-colors hover:bg-accent/50',
+        isSelected && 'bg-accent',
+      )}
+    >
       <td className="px-4 py-3 font-medium">
         <div className="flex flex-col gap-0.5">
           <span>{vault.vaultName}</span>
