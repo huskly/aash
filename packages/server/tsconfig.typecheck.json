@@ -6,7 +6,6 @@
     "declarationMap": false,
     "noEmit": true,
     "rootDir": "..",
-    "baseUrl": ".",
     "paths": {
       "@aave-monitor/core": ["../aave-core/src/index.ts"]
     }

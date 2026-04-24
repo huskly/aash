@@ -194,7 +194,8 @@ export class Monitor {
       }
     }
     for (const vaultKey of Array.from(this.vaultPositions.keys())) {
-      const walletAddr = vaultKey.split('-')[0];
+      const dashIdx = vaultKey.indexOf('-');
+      const walletAddr = dashIdx >= 0 ? vaultKey.slice(0, dashIdx) : vaultKey;
       if (!enabledAddresses.has(walletAddr)) {
         this.vaultPositions.delete(vaultKey);
       }
