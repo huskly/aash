@@ -361,10 +361,18 @@ export function BorrowRateHistoryCard({
   samples,
   reserve,
   currentTimeMs,
+  title = 'Borrow APR History',
+  description = 'Sampled from reserve telemetry by the server and tracked over time.',
+  rateLabel = 'Borrow APR',
+  emptyMessage = 'Borrow APR history needs at least two reserve snapshots. Keep the dashboard running and refreshing to build the chart over time.',
 }: {
   samples: BorrowRateSample[];
   reserve: ReserveTelemetry | null;
   currentTimeMs: number;
+  title?: string;
+  description?: string;
+  rateLabel?: string;
+  emptyMessage?: string;
 }) {
   const [windowValue, setWindowValue] = useState<HistoryWindow>('180d');
 
@@ -422,10 +430,8 @@ export function BorrowRateHistoryCard({
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-3">
         <div>
-          <CardTitle>Borrow APR History</CardTitle>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Sampled from reserve telemetry by the server and tracked over time.
-          </p>
+          <CardTitle>{title}</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
         <div className="flex flex-wrap justify-end gap-1">
           {HISTORY_WINDOWS.map((entry) => (
@@ -495,7 +501,7 @@ export function BorrowRateHistoryCard({
                           </p>
                         )}
                         <p style={{ color: CHART_COLORS.borrow }} className="font-semibold">
-                          Borrow APR: {fmtPct(Number(point?.value ?? 0))}
+                          {rateLabel}: {fmtPct(Number(point?.value ?? 0))}
                         </p>
                       </div>
                     );
@@ -516,7 +522,7 @@ export function BorrowRateHistoryCard({
                 <Line
                   type="monotone"
                   dataKey="borrowRate"
-                  name="Borrow APR"
+                  name={rateLabel}
                   stroke={CHART_COLORS.borrow}
                   strokeWidth={2.5}
                   dot={false}
@@ -527,8 +533,7 @@ export function BorrowRateHistoryCard({
           </>
         ) : (
           <div className="rounded-lg border border-border bg-accent px-4 py-5 text-sm text-muted-foreground">
-            Borrow APR history needs at least two reserve snapshots. Keep the dashboard running and
-            refreshing to build the chart over time.
+            {emptyMessage}
           </div>
         )}
       </CardContent>

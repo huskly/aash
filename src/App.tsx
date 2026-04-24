@@ -18,7 +18,11 @@ import {
   type InterestSnapshot,
 } from './api/aaveMonitor';
 import { readBorrowRateHistory, buildBorrowRateHistoryKey } from './lib/borrowRateHistory';
-import { InterestAccrualHistoryCard, type BorrowRateSample } from './components/ReserveCharts';
+import {
+  BorrowRateHistoryCard,
+  InterestAccrualHistoryCard,
+  type BorrowRateSample,
+} from './components/ReserveCharts';
 import { ServerSettings } from './components/ServerSettings';
 import { ToastProvider, ToastViewport } from './components/ui/toast';
 import { type ToastMessage } from './components/ui/toast-context';
@@ -72,6 +76,7 @@ export default function App() {
   const [vaultInterestHistories, setVaultInterestHistories] = useState<
     Record<string, InterestSnapshot[]>
   >({});
+  const [vaultRateHistory, setVaultRateHistory] = useState<BorrowRateSample[]>([]);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const hasAutoFetchedInitialWallet = useRef(false);
@@ -266,6 +271,22 @@ export default function App() {
 
   useEffect(() => {
     const resolvedWallet = result?.wallet;
+    if (!resolvedWallet || !selectedVault) {
+      setVaultRateHistory([]); // eslint-disable-line react-hooks/set-state-in-effect -- resetting on dependency change
+      return;
+    }
+    let cancelled = false;
+    void fetchBorrowRateHistory(resolvedWallet, selectedVault.vaultAddress).then((samples) => {
+      if (cancelled) return;
+      setVaultRateHistory(samples);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [result?.wallet, result?.lastUpdated, selectedVault]);
+
+  useEffect(() => {
+    const resolvedWallet = result?.wallet;
     if (!resolvedWallet || !result?.vaults?.length) {
       setVaultInterestHistories({}); // eslint-disable-line react-hooks/set-state-in-effect -- resetting on dependency change
       return;
@@ -375,6 +396,15 @@ export default function App() {
                         </span>
                       </p>
                       <section className="mt-2 grid gap-4">
+                        <BorrowRateHistoryCard
+                          samples={vaultRateHistory}
+                          reserve={null}
+                          currentTimeMs={now}
+                          title="Net APY History"
+                          description={`Sampled net APY for ${selectedVault.vaultSymbol} tracked over time.`}
+                          rateLabel="Net APY"
+                          emptyMessage="Net APY history needs at least two samples. Keep the dashboard running and refreshing to build the chart over time."
+                        />
                         <InterestAccrualHistoryCard
                           kind="vault"
                           title={`${selectedVault.vaultName} — Daily Earnings`}

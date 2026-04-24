@@ -616,6 +616,27 @@ export class Monitor {
           );
         }
       }
+
+      // Vault net APY samples (15-minute throttle, same schema as loan rate samples).
+      for (const vault of morphoVaults) {
+        if (!Number.isFinite(vault.netApy)) continue;
+        const stateKey = `${address}-vault-${vault.vaultAddress}`;
+        const lastTs = this.lastSampleAt.get(stateKey) ?? 0;
+        if (now - lastTs < 15 * 60 * 1000) continue;
+        try {
+          this.rateHistoryDb.appendSample(
+            address,
+            vault.vaultAddress,
+            vault.vaultName,
+            now,
+            vault.netApy,
+            vault.netApy,
+          );
+          this.lastSampleAt.set(stateKey, now);
+        } catch (err) {
+          logger.warn({ err, vault: vault.vaultAddress }, 'Failed to record vault rate sample');
+        }
+      }
     }
 
     const walletPrefix = `${address}-`;
