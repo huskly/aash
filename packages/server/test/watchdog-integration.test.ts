@@ -149,7 +149,7 @@ function createWatchdog(
   return {
     watchdog: new Watchdog(
       telegram,
-      () => options.chatId ?? '123',
+      () => (options.chatId !== undefined ? options.chatId : '123'),
       () => config,
       'http://localhost:8545',
       options.privateKey === undefined ? '0xabc' : (options.privateKey ?? undefined),
@@ -165,7 +165,7 @@ function createWatchdogWithTelegram(
 ) {
   return new Watchdog(
     telegram,
-    () => options.chatId ?? '123',
+    () => (options.chatId !== undefined ? options.chatId : '123'),
     () => config,
     'http://localhost:8545',
     options.privateKey === undefined ? '0xabc' : (options.privateKey ?? undefined),
