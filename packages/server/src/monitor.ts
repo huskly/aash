@@ -2,6 +2,7 @@ import {
   type AssetLiquidation,
   type AssetPosition,
   type LoanPosition,
+  type MorphoVaultPosition,
   type ReserveTelemetry,
   type Zone,
   type ZoneName,
@@ -66,6 +67,7 @@ export type MonitorStatus = {
   running: boolean;
   states: LoanAlertState[];
   utilizationStates: UtilizationAlertState[];
+  vaults: MorphoVaultPosition[];
   totalWalletBorrowedAssetUsd: number;
   lastPollAt: number | null;
   lastError: string | null;
@@ -91,6 +93,7 @@ type ReminderDigestEntry = {
 export class Monitor {
   private states = new Map<string, LoanAlertState>();
   private utilizationStates = new Map<string, UtilizationAlertState>();
+  private vaultPositions = new Map<string, MorphoVaultPosition>();
   private timerId: ReturnType<typeof setInterval> | null = null;
   private walletBorrowedAssetUsd = new Map<string, number>();
   private lastPollAt: number | null = null;
@@ -150,6 +153,7 @@ export class Monitor {
       running: this.running,
       states: Array.from(this.states.values()),
       utilizationStates: Array.from(this.utilizationStates.values()),
+      vaults: Array.from(this.vaultPositions.values()),
       totalWalletBorrowedAssetUsd: Array.from(this.walletBorrowedAssetUsd.values()).reduce(
         (sum, value) => sum + value,
         0,
@@ -187,6 +191,13 @@ export class Monitor {
     for (const [utilKey, utilState] of Array.from(this.utilizationStates.entries())) {
       if (!enabledAddresses.has(utilState.wallet.toLowerCase())) {
         this.utilizationStates.delete(utilKey);
+      }
+    }
+    for (const vaultKey of Array.from(this.vaultPositions.keys())) {
+      const dashIdx = vaultKey.indexOf('-');
+      const walletAddr = dashIdx >= 0 ? vaultKey.slice(0, dashIdx) : vaultKey;
+      if (!enabledAddresses.has(walletAddr)) {
+        this.vaultPositions.delete(vaultKey);
       }
     }
 
@@ -243,6 +254,13 @@ export class Monitor {
     const morphoLoans = morphoPositions.marketLoans;
     const morphoVaults = morphoPositions.vaultPositions;
     const loans = [...buildLoanPositions(reserves, prices), ...morphoLoans];
+
+    const activeVaultKeys = new Set<string>();
+    for (const vault of morphoVaults) {
+      const vaultKey = `${address.toLowerCase()}-${vault.vaultAddress.toLowerCase()}`;
+      activeVaultKeys.add(vaultKey);
+      this.vaultPositions.set(vaultKey, vault);
+    }
 
     // Fetch reserve telemetry for Aave loans when utilization alerts are enabled.
     // Deduplicate by (marketName, assetAddress) to avoid redundant RPC calls.
@@ -659,6 +677,7 @@ export class Monitor {
     }
 
     const walletPrefix = `${address}-`;
+    const walletPrefixLc = `${address.toLowerCase()}-`;
     for (const stateKey of Array.from(this.states.keys())) {
       if (stateKey.startsWith(walletPrefix) && !activeStateKeys.has(stateKey)) {
         this.states.delete(stateKey);
@@ -667,6 +686,11 @@ export class Monitor {
     for (const utilKey of Array.from(this.utilizationStates.keys())) {
       if (utilKey.startsWith(walletPrefix) && !activeUtilKeys.has(utilKey)) {
         this.utilizationStates.delete(utilKey);
+      }
+    }
+    for (const vaultKey of Array.from(this.vaultPositions.keys())) {
+      if (vaultKey.startsWith(walletPrefixLc) && !activeVaultKeys.has(vaultKey)) {
+        this.vaultPositions.delete(vaultKey);
       }
     }
   }
