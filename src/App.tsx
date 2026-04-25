@@ -114,7 +114,9 @@ export default function App() {
                 <>
                   {portfolio ? <PortfolioSummaryCard portfolio={portfolio} /> : null}
 
-                  <PortfolioHistoryCard samples={portfolioHistory} currentTimeMs={now} />
+                  <div className="mt-4">
+                    <PortfolioHistoryCard samples={portfolioHistory} currentTimeMs={now} />
+                  </div>
 
                   <LoanPositionsTable
                     rows={loanRows}
