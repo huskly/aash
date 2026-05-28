@@ -104,4 +104,8 @@ export const DEFAULT_WATCHDOG_CONFIG: WatchdogConfig = {
   rescueContract: '',
   morphoRescueContract: '',
   maxGasGwei: 50,
+  preRescueEnabled: false,
+  preRescueTriggerHF: 1.7,
+  vaultWithdrawContract: '',
+  maxVaultWithdrawAmount: 500,
 };

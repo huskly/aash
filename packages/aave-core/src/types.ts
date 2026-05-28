@@ -19,6 +19,14 @@ export type WatchdogConfig = {
   rescueContract: string;
   morphoRescueContract: string;
   maxGasGwei: number;
+  /** Layer-0 (pre-rescue) Morpho vault withdrawal. */
+  preRescueEnabled: boolean;
+  /** HF at or above which layer-0 stays idle; layer-0 runs in [triggerHF, preRescueTriggerHF). */
+  preRescueTriggerHF: number;
+  /** MorphoVaultWithdrawV1 contract address. */
+  vaultWithdrawContract: string;
+  /** Per-loan, debt-token-denominated cap on a single layer-0 withdrawal. */
+  maxVaultWithdrawAmount: number;
 };
 
 export type RawUserReserve = {

@@ -15,6 +15,10 @@ const partialWatchdogConfigSchema = z
     rescueContract: z.string(),
     morphoRescueContract: z.string(),
     maxGasGwei: z.number().positive(),
+    preRescueEnabled: z.boolean(),
+    preRescueTriggerHF: z.number().positive(),
+    vaultWithdrawContract: z.string(),
+    maxVaultWithdrawAmount: z.number().positive(),
   })
   .partial();
 
