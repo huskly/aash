@@ -48,7 +48,7 @@ export function validateWatchdogThresholds(
     return 'watchdog requires at least one valid rescue contract when enabled';
   }
 
-  if (merged.preRescueTriggerHF <= merged.triggerHF) {
+  if (merged.preRescueEnabled && merged.preRescueTriggerHF <= merged.triggerHF) {
     return 'watchdog.preRescueTriggerHF must be greater than watchdog.triggerHF';
   }
   if (merged.maxVaultWithdrawAmount <= 0) {
