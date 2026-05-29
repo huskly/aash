@@ -544,7 +544,7 @@ export class Monitor {
 
     // Watchdog evaluation pass — runs after alerts so notifications always go out first
     for (const loan of loans) {
-      await this.watchdog.evaluate(loan, address);
+      await this.watchdog.evaluate(loan, address, morphoVaults);
     }
 
     // Cumulative-interest snapshots for Morpho positions. Recorded every poll so

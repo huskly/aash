@@ -108,6 +108,25 @@ function validateConfig(config: AlertConfig): string | null {
     return 'Watchdog max gas must be a positive number.';
   }
 
+  if (!isPositiveFinite(watchdog.preRescueTriggerHF)) {
+    return 'Pre-rescue trigger HF must be a positive number.';
+  }
+  if (watchdog.preRescueEnabled && watchdog.preRescueTriggerHF <= watchdog.triggerHF) {
+    return 'Pre-rescue trigger HF must be greater than trigger HF.';
+  }
+  if (!isPositiveFinite(watchdog.maxVaultWithdrawAmount)) {
+    return 'Watchdog max vault withdraw amount must be a positive number.';
+  }
+  if (
+    watchdog.vaultWithdrawContract &&
+    !/^0x[a-fA-F0-9]{40}$/.test(watchdog.vaultWithdrawContract)
+  ) {
+    return 'Vault withdraw contract must be a valid Ethereum address.';
+  }
+  if (watchdog.preRescueEnabled && !/^0x[a-fA-F0-9]{40}$/.test(watchdog.vaultWithdrawContract)) {
+    return 'Enable pre-rescue only after configuring the vault withdraw contract.';
+  }
+
   return null;
 }
 
@@ -682,6 +701,86 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                         className="w-[120px]"
                       />
                     </label>
+
+                    <div className="mt-2 grid gap-3 rounded-md border border-border/60 p-3">
+                      <div className="text-xs font-semibold uppercase text-muted-foreground">
+                        Pre-rescue (Morpho vault withdrawal)
+                      </div>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={config.watchdog.preRescueEnabled}
+                          onChange={() =>
+                            updateWatchdog(
+                              { preRescueEnabled: !config.watchdog.preRescueEnabled },
+                              { persist: true },
+                            )
+                          }
+                          className="accent-primary"
+                        />
+                        Enable pre-rescue vault withdrawal
+                      </label>
+
+                      <label className="grid gap-1.5 text-sm">
+                        <span className="text-muted-foreground">Pre-rescue trigger HF</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={config.watchdog.preRescueTriggerHF}
+                          onChange={(e) =>
+                            updateWatchdog({ preRescueTriggerHF: Number(e.target.value) })
+                          }
+                          onBlur={(e) =>
+                            updateWatchdog(
+                              { preRescueTriggerHF: Number(e.target.value) },
+                              { persist: true },
+                            )
+                          }
+                          className="w-[120px]"
+                        />
+                      </label>
+
+                      <label className="grid gap-1.5 text-sm">
+                        <span className="text-muted-foreground">
+                          Max vault withdraw per action (debt token)
+                        </span>
+                        <Input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={config.watchdog.maxVaultWithdrawAmount}
+                          onChange={(e) =>
+                            updateWatchdog({ maxVaultWithdrawAmount: Number(e.target.value) })
+                          }
+                          onBlur={(e) =>
+                            updateWatchdog(
+                              { maxVaultWithdrawAmount: Number(e.target.value) },
+                              { persist: true },
+                            )
+                          }
+                          className="w-[120px]"
+                        />
+                      </label>
+
+                      <label className="grid gap-1.5 text-sm">
+                        <span className="text-muted-foreground">Vault withdraw contract</span>
+                        <Input
+                          value={config.watchdog.vaultWithdrawContract}
+                          onChange={(e) =>
+                            updateWatchdog({ vaultWithdrawContract: e.target.value.trim() })
+                          }
+                          onBlur={(e) =>
+                            updateWatchdog(
+                              { vaultWithdrawContract: e.target.value.trim() },
+                              { persist: true },
+                            )
+                          }
+                          placeholder="0x..."
+                          className="font-mono text-xs"
+                        />
+                      </label>
+                    </div>
                   </div>
                 ) : null}
               </section>

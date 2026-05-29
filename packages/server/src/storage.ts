@@ -84,6 +84,17 @@ function applyWatchdogEnvOverrides(watchdog: WatchdogConfig): void {
 
   const morphoRescueContract = process.env['WATCHDOG_MORPHO_RESCUE_CONTRACT']?.trim();
   if (morphoRescueContract) watchdog.morphoRescueContract = morphoRescueContract;
+
+  const preRescueTriggerHF = parseEnvFloat('WATCHDOG_PRE_TRIGGER_HF');
+  if (preRescueTriggerHF !== undefined) watchdog.preRescueTriggerHF = preRescueTriggerHF;
+
+  const vaultWithdrawContract = process.env['WATCHDOG_VAULT_WITHDRAW_CONTRACT']?.trim();
+  if (vaultWithdrawContract) watchdog.vaultWithdrawContract = vaultWithdrawContract;
+
+  const maxVaultWithdrawAmount = parseEnvFloat('WATCHDOG_MAX_VAULT_WITHDRAW_AMOUNT');
+  if (maxVaultWithdrawAmount !== undefined) {
+    watchdog.maxVaultWithdrawAmount = maxVaultWithdrawAmount;
+  }
 }
 
 function mergeWatchdogConfig(config: Partial<WatchdogConfig> | undefined): WatchdogConfig {

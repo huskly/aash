@@ -124,3 +124,64 @@ Live:
 - Pre-approve debt/loan tokens from monitored wallet to rescue contract(s).
 - Keep `maxRepayAmount` small during rollout.
 - Monitor Telegram alerts and `/api/watchdog/status` for recent repay activity.
+
+## Layer 0: Pre-rescue Morpho Vault Withdrawal
+
+If the operator's debt-token funds are parked in a Morpho ERC-4626 vault (e.g.
+Gauntlet USDC Prime) rather than sitting idle in the wallet, the regular rescue
+path would log "no available USDC" even when the operator has plenty of capital
+to defend the loan. Layer 0 closes that gap by pre-emptively withdrawing from the
+vault into the wallet _before_ HF reaches the layer-1 trigger.
+
+### How it works
+
+- Layer 0 fires only when HF is in the buffer band `[triggerHF, preRescueTriggerHF)`.
+- It computes the debt repay amount that would be needed to reach `targetHF` (capped
+  at `maxVaultWithdrawAmount`), checks the wallet for existing balance, and only
+  withdraws the shortfall.
+- The vault is selected automatically by matching the loan's debt-token address;
+  if multiple vaults match, the one with the largest balance wins.
+- Withdrawn assets are sent directly to the monitored wallet via the ERC-4626
+  `withdraw(assets, owner, owner)` call. The helper contract never custodies
+  funds.
+- A separate cooldown key (`-prerescue`) prevents repeated withdrawals.
+- If HF recovers above `preRescueTriggerHF`, the withdrawn funds simply stay in
+  the wallet; the operator can redeposit them manually.
+- If HF crosses `triggerHF`, the existing layer-1 rescue runs in the next poll
+  cycle, consuming the now-funded wallet balance — no change to layer-1 code.
+
+### Configuration
+
+- `preRescueEnabled` (default `false`)
+- `preRescueTriggerHF` (default `1.7`)
+- `vaultWithdrawContract` (required when `preRescueEnabled=true`) — address of
+  `MorphoVaultWithdrawV1`
+- `maxVaultWithdrawAmount` (default `500`) — per-action cap in the debt token
+
+Validation: `preRescueTriggerHF > triggerHF` and `vaultWithdrawContract` must be
+a valid address when `preRescueEnabled` is true.
+
+Environment overrides:
+
+- `WATCHDOG_PRE_TRIGGER_HF`
+- `WATCHDOG_VAULT_WITHDRAW_CONTRACT`
+- `WATCHDOG_MAX_VAULT_WITHDRAW_AMOUNT`
+
+### On-chain requirements
+
+- Deploy `MorphoVaultWithdrawV1(owner=monitoredWallet, executor=botAddress)`.
+- Call `setSupportedVault(vaultAddress, true)` from the owner wallet for each
+  Morpho vault you want to draw from (one contract supports multiple vaults).
+- From the monitored wallet, approve the vault's share token (the vault is the
+  ERC-4626 itself): `vault.approve(vaultWithdrawContract, type(uint256).max)`.
+- The executor key may differ from the monitored wallet (same model as the
+  existing rescue contracts).
+
+### Log entries
+
+Layer-0 outcomes appear in `/api/watchdog/status` with new action types:
+
+- `vault-withdraw` — live withdrawal succeeded; `txHash` and `vaultAddress` set
+- `vault-withdraw-dry-run` — dry-run preview entry
+- `skipped` — buffer-band conditions not met (wallet already funded, no matching
+  vault, cooldown, etc.)

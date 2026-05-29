@@ -1,4 +1,9 @@
-import { computeLoanMetrics, type LoanPosition, type MorphoMarketParams } from '@aave-monitor/core';
+import {
+  computeLoanMetrics,
+  type LoanPosition,
+  type MorphoMarketParams,
+  type MorphoVaultPosition,
+} from '@aave-monitor/core';
 import { formatUnits, Interface, JsonRpcProvider, parseUnits, Wallet } from 'ethers';
 import type { WatchdogConfig } from './storage.js';
 import type { TelegramClient } from './telegram.js';
@@ -19,6 +24,14 @@ const MORPHO_RESCUE_INTERFACE = new Interface([
   'function previewResultingHf((address loanToken,address collateralToken,address oracle,address irm,uint256 lltv) marketParams, address user, uint256 amount) view returns (uint256)',
 ]);
 
+const VAULT_WITHDRAW_INTERFACE = new Interface([
+  'function withdraw((address user,address vault,uint256 assets,uint256 deadline) params)',
+]);
+
+const ERC4626_INTERFACE = new Interface([
+  'function maxWithdraw(address owner) view returns (uint256)',
+]);
+
 const MIN_ETH_FOR_GAS = 0.005;
 const TELEGRAM_MESSAGE_LIMIT = 3900;
 export type WatchdogLogEntry = {
@@ -26,13 +39,14 @@ export type WatchdogLogEntry = {
   loanId: string;
   wallet: string;
   protocol: 'aave' | 'morpho';
-  action: 'dry-run' | 'rescue' | 'skipped';
+  action: 'dry-run' | 'rescue' | 'skipped' | 'vault-withdraw' | 'vault-withdraw-dry-run';
   reason: string;
   healthFactor: number;
   repayAmount: number;
   repayAssetSymbol: string;
   projectedHF: number;
   txHash?: string;
+  vaultAddress?: string;
 };
 
 export class Watchdog {
@@ -64,6 +78,9 @@ export class Watchdog {
     aaveRescueContract: string;
     morphoRescueContract: string;
     recentActions: number;
+    preRescueEnabled: boolean;
+    preRescueTriggerHF: number;
+    vaultWithdrawContract: string;
   } {
     const config = this.getConfig();
     return {
@@ -76,10 +93,17 @@ export class Watchdog {
       aaveRescueContract: config.rescueContract,
       morphoRescueContract: config.morphoRescueContract,
       recentActions: this.log.length,
+      preRescueEnabled: config.preRescueEnabled,
+      preRescueTriggerHF: config.preRescueTriggerHF,
+      vaultWithdrawContract: config.vaultWithdrawContract,
     };
   }
 
-  async evaluate(loan: LoanPosition, walletAddress: string): Promise<void> {
+  async evaluate(
+    loan: LoanPosition,
+    walletAddress: string,
+    vaults: MorphoVaultPosition[] = [],
+  ): Promise<void> {
     const isMorpho = loan.marketName.startsWith('morpho_');
     const isAave = loan.marketName.startsWith('proto_');
     if (!isMorpho && !isAave) return;
@@ -92,9 +116,29 @@ export class Watchdog {
     const metrics = computeLoanMetrics(loan);
     const healthFactor = metrics.healthFactor;
     const borrowRate = this.formatBorrowRate(metrics.rBorrow);
-    if (!Number.isFinite(healthFactor) || healthFactor >= config.triggerHF) {
+    if (!Number.isFinite(healthFactor)) return;
+
+    // Layer 0: opportunistic Morpho vault withdrawal in the buffer band
+    // [triggerHF, preRescueTriggerHF). Runs *before* layer 1 so that funds
+    // are already in the wallet by the time HF crosses triggerHF.
+    if (
+      config.preRescueEnabled &&
+      healthFactor >= config.triggerHF &&
+      healthFactor < config.preRescueTriggerHF
+    ) {
+      await this.attemptPreRescueWithdraw(
+        loan,
+        walletAddress,
+        vaults,
+        healthFactor,
+        borrowRate,
+        protocol,
+        isMorpho,
+      );
       return;
     }
+
+    if (healthFactor >= config.triggerHF) return;
 
     // Resolve protocol-specific rescue contract and debt token info.
     // For Aave, pick the borrowed asset with the largest USD value — repaying
@@ -457,6 +501,384 @@ export class Watchdog {
     }
   }
 
+  private async attemptPreRescueWithdraw(
+    loan: LoanPosition,
+    walletAddress: string,
+    vaults: MorphoVaultPosition[],
+    healthFactor: number,
+    borrowRate: string,
+    protocol: 'aave' | 'morpho',
+    isMorpho: boolean,
+  ): Promise<void> {
+    const config = this.getConfig();
+    const vaultWithdrawContract = config.vaultWithdrawContract.trim();
+    const primaryDebt = isMorpho
+      ? loan.borrowed[0]
+      : loan.borrowed.length > 1
+        ? loan.borrowed.reduce((a, b) => (b.usdValue > a.usdValue ? b : a))
+        : loan.borrowed[0];
+    const debtToken = isMorpho
+      ? (loan.morphoMarketParams?.loanToken ?? primaryDebt?.address)
+      : primaryDebt?.address;
+    const debtDecimals = primaryDebt?.decimals ?? 6;
+    const debtSymbol = primaryDebt?.symbol ?? 'USDC';
+    const morphoParams = isMorpho ? loan.morphoMarketParams : undefined;
+
+    if (!/^0x[a-fA-F0-9]{40}$/.test(vaultWithdrawContract)) {
+      this.addLog({
+        timestamp: Date.now(),
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: 'Invalid or missing vaultWithdrawContract in watchdog config',
+        healthFactor,
+        repayAmount: 0,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+      });
+      return;
+    }
+
+    if (!debtToken) return;
+    if (isMorpho && !morphoParams) return;
+
+    const now = Date.now();
+    const stateKey = `${walletAddress}-${loan.id}-prerescue`;
+    const lastAction = this.cooldowns.get(stateKey) ?? 0;
+    if (now - lastAction < config.cooldownMs) {
+      const remainingMs = config.cooldownMs - (now - lastAction);
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: `Pre-rescue cooldown active: ${Math.round(remainingMs / 1000)}s remaining`,
+        healthFactor,
+        repayAmount: 0,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+      });
+      return;
+    }
+
+    const provider = this.getProvider();
+    const rescueContract = isMorpho
+      ? config.morphoRescueContract.trim()
+      : config.rescueContract.trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(rescueContract)) {
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: `Pre-rescue: invalid ${isMorpho ? 'morphoRescueContract' : 'rescueContract'} (needed for HF preview)`,
+        healthFactor,
+        repayAmount: 0,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+      });
+      return;
+    }
+
+    const previewFn = isMorpho
+      ? (amount: bigint) =>
+          this.previewResultingHfMorpho(
+            provider,
+            rescueContract,
+            walletAddress,
+            amount,
+            morphoParams!,
+          )
+      : (amount: bigint) =>
+          this.previewResultingHf(provider, rescueContract, walletAddress, debtToken, amount);
+
+    // 1. Find candidate vaults (matching the debt token) and query each one's
+    //    user-specific maxWithdraw on-chain. We can't trust Morpho API
+    //    `totalAssets` as a proxy for "withdrawable by this user" — it's a
+    //    vault-wide total, not per-owner, and ignores liquidity / share-balance
+    //    constraints. Pick the candidate with the largest withdrawable amount.
+    const debtTokenLower = debtToken.toLowerCase();
+    const candidates = vaults.filter((v) => v.asset.address.toLowerCase() === debtTokenLower);
+
+    let walletBalanceRaw: bigint;
+    let vaultMaxWithdrawals: { vault: MorphoVaultPosition; maxWithdrawRaw: bigint }[];
+    try {
+      const [balance, maxWithdrawals] = await Promise.all([
+        this.getTokenBalance(provider, debtToken, walletAddress),
+        Promise.all(
+          candidates.map(async (vault) => ({
+            vault,
+            maxWithdrawRaw: await this.getVaultMaxWithdraw(
+              provider,
+              vault.vaultAddress,
+              walletAddress,
+            ),
+          })),
+        ),
+      ]);
+      walletBalanceRaw = balance;
+      vaultMaxWithdrawals = maxWithdrawals;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: `Pre-rescue on-chain call failed: ${message}`,
+        healthFactor,
+        repayAmount: 0,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+      });
+      return;
+    }
+
+    const bestVault = vaultMaxWithdrawals
+      .filter((entry) => entry.maxWithdrawRaw > 0n)
+      .reduce<
+        { vault: MorphoVaultPosition; maxWithdrawRaw: bigint } | undefined
+      >((best, entry) => (!best || entry.maxWithdrawRaw > best.maxWithdrawRaw ? entry : best), undefined);
+
+    if (!bestVault) {
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: `Pre-rescue: no Morpho vault with withdrawable ${debtSymbol} found`,
+        healthFactor,
+        repayAmount: 0,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+      });
+      return;
+    }
+
+    // 2. Compute total repay capacity (wallet + vault), capped by both
+    //    maxVaultWithdrawAmount (per-action vault cap) and maxRepayAmount
+    //    (layer-1's eventual cap — withdrawing more than this can't be used
+    //    by the follow-up rescue and is wasted gas / slippage).
+    const maxVaultWithdrawRaw = parseUnits(
+      config.maxVaultWithdrawAmount.toFixed(debtDecimals),
+      debtDecimals,
+    );
+    const maxRepayRaw = parseUnits(config.maxRepayAmount.toFixed(debtDecimals), debtDecimals);
+    const usableVaultRaw = minBigInt(bestVault.maxWithdrawRaw, maxVaultWithdrawRaw);
+    const totalCapacityRaw = minBigInt(walletBalanceRaw + usableVaultRaw, maxRepayRaw);
+
+    let neededRaw: bigint;
+    try {
+      const targetHFWad = this.toWad(config.targetHF);
+      const computed = await this.findRequiredAmountRawGeneric(
+        previewFn,
+        targetHFWad,
+        totalCapacityRaw,
+      );
+      if (computed === null || computed <= 0n) {
+        this.addLog({
+          timestamp: now,
+          loanId: loan.id,
+          wallet: walletAddress,
+          protocol,
+          action: 'skipped',
+          reason: `Pre-rescue: ${this.toFormattedAmount(totalCapacityRaw, debtDecimals).toFixed(2)} ${debtSymbol} (wallet + vault, capped) not enough to reach target HF`,
+          healthFactor,
+          repayAmount: 0,
+          repayAssetSymbol: debtSymbol,
+          projectedHF: healthFactor,
+        });
+        return;
+      }
+      neededRaw = computed;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: `Pre-rescue HF preview failed: ${message}`,
+        healthFactor,
+        repayAmount: 0,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+      });
+      return;
+    }
+
+    // 3. If wallet already covers needed repay, layer 1 doesn't need help.
+    if (walletBalanceRaw >= neededRaw) {
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: `Pre-rescue: wallet already holds ${this.toFormattedAmount(walletBalanceRaw, debtDecimals).toFixed(2)} ${debtSymbol} (need ${this.toFormattedAmount(neededRaw, debtDecimals).toFixed(2)})`,
+        healthFactor,
+        repayAmount: 0,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+      });
+      return;
+    }
+
+    // 4. Withdraw only the shortfall, bounded by what the vault will actually
+    //    allow this user to pull and by maxVaultWithdrawAmount.
+    const shortfallRaw = neededRaw - walletBalanceRaw;
+    const withdrawRaw = minBigInt(shortfallRaw, usableVaultRaw);
+    if (withdrawRaw <= 0n) return;
+
+    const matchingVault = bestVault.vault;
+
+    const withdrawAmount = this.toFormattedAmount(withdrawRaw, debtDecimals);
+
+    if (config.dryRun) {
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'vault-withdraw-dry-run',
+        reason: `Would withdraw ${withdrawAmount.toFixed(2)} ${debtSymbol} from ${matchingVault.vaultName}`,
+        healthFactor,
+        repayAmount: withdrawAmount,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+        vaultAddress: matchingVault.vaultAddress,
+      });
+      this.cooldowns.set(stateKey, now);
+      await this.notify(
+        `🧪 <b>Watchdog Pre-rescue DRY RUN</b>\n\n` +
+          `Loan: ${loan.id} (${loan.marketName})\n` +
+          `HF: <b>${healthFactor.toFixed(4)}</b> (band: ${config.triggerHF}–${config.preRescueTriggerHF})\n` +
+          `Borrow rate: <b>${borrowRate}</b>\n` +
+          `Would withdraw: <b>${withdrawAmount.toFixed(2)} ${debtSymbol}</b>\n` +
+          `From vault: <code>${matchingVault.vaultName}</code>`,
+      );
+      return;
+    }
+
+    if (!this.executorPrivateKey) {
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: 'Pre-rescue: no executor private key configured',
+        healthFactor,
+        repayAmount: withdrawAmount,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+        vaultAddress: matchingVault.vaultAddress,
+      });
+      return;
+    }
+
+    const gasPriceGwei = await this.getGasPriceGwei(provider);
+    if (gasPriceGwei > config.maxGasGwei) {
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: `Pre-rescue: gas ${gasPriceGwei.toFixed(1)} gwei exceeds max ${config.maxGasGwei}`,
+        healthFactor,
+        repayAmount: withdrawAmount,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+        vaultAddress: matchingVault.vaultAddress,
+      });
+      return;
+    }
+
+    const deadline = Math.floor(Date.now() / 1000) + config.deadlineSeconds;
+    try {
+      const txHash = await this.submitVaultWithdrawTransaction(
+        walletAddress,
+        vaultWithdrawContract,
+        matchingVault.vaultAddress,
+        withdrawRaw,
+        deadline,
+      );
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'vault-withdraw',
+        reason: `Withdrew ${withdrawAmount.toFixed(2)} ${debtSymbol} from ${matchingVault.vaultName}`,
+        healthFactor,
+        repayAmount: withdrawAmount,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+        txHash,
+        vaultAddress: matchingVault.vaultAddress,
+      });
+      this.cooldowns.set(stateKey, Date.now());
+      await this.notify(
+        `🛟 <b>Watchdog: Pre-rescue vault withdrawal</b>\n\n` +
+          `Loan: ${loan.id} (${loan.marketName})\n` +
+          `HF: <b>${healthFactor.toFixed(4)}</b> (band: ${config.triggerHF}–${config.preRescueTriggerHF})\n` +
+          `Borrow rate: <b>${borrowRate}</b>\n` +
+          `Withdrew: <b>${withdrawAmount.toFixed(2)} ${debtSymbol}</b>\n` +
+          `From vault: <code>${matchingVault.vaultName}</code>\n` +
+          `Tx: <code>${txHash}</code>`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: `Pre-rescue tx failed: ${message}`,
+        healthFactor,
+        repayAmount: withdrawAmount,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+        vaultAddress: matchingVault.vaultAddress,
+      });
+      this.cooldowns.set(stateKey, Date.now());
+      await this.notify(
+        `❌ <b>Watchdog: Pre-rescue failed</b>\n\n` +
+          `Loan: ${loan.id} (${loan.marketName})\n` +
+          `Borrow rate: <b>${borrowRate}</b>\n` +
+          `Attempted: <b>${withdrawAmount.toFixed(2)} ${debtSymbol}</b> from ${matchingVault.vaultName}\n` +
+          `Error: ${message}`,
+      );
+    }
+  }
+
+  private async submitVaultWithdrawTransaction(
+    user: string,
+    vaultWithdrawContract: string,
+    vault: string,
+    assetsRaw: bigint,
+    deadline: number,
+  ): Promise<string> {
+    const wallet = this.getWallet();
+    const data = VAULT_WITHDRAW_INTERFACE.encodeFunctionData('withdraw', [
+      { user, vault, assets: assetsRaw, deadline },
+    ]);
+    const tx = await wallet.sendTransaction({ to: vaultWithdrawContract, data });
+    const receipt = await this.waitForReceiptOrReplacement(tx, vaultWithdrawContract, data);
+    if (!receipt || receipt.status === 0) {
+      throw new Error(`Transaction reverted: ${tx.hash}`);
+    }
+    return receipt.hash;
+  }
+
   private async findRequiredAmountRawGeneric(
     previewFn: (amount: bigint) => Promise<bigint>,
     targetHF: bigint,
@@ -622,6 +1044,17 @@ export class Watchdog {
     const result = await provider.call({ to: token, data });
     const [balance] = ERC20_INTERFACE.decodeFunctionResult('balanceOf', result);
     return BigInt(balance);
+  }
+
+  private async getVaultMaxWithdraw(
+    provider: JsonRpcProvider,
+    vault: string,
+    owner: string,
+  ): Promise<bigint> {
+    const data = ERC4626_INTERFACE.encodeFunctionData('maxWithdraw', [owner]);
+    const result = await provider.call({ to: vault, data });
+    const [maxAssets] = ERC4626_INTERFACE.decodeFunctionResult('maxWithdraw', result);
+    return BigInt(maxAssets);
   }
 
   private async getTokenAllowance(

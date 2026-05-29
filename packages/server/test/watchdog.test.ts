@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { LoanPosition } from '@aave-monitor/core';
+import type { LoanPosition, MorphoVaultPosition } from '@aave-monitor/core';
 import { Watchdog } from '../src/watchdog.js';
 import type { WatchdogConfig } from '../src/storage.js';
 import type { TelegramClient } from '../src/telegram.js';
 
 const WALLET = '0x1111111111111111111111111111111111111111';
 const RESCUE_CONTRACT = '0x2222222222222222222222222222222222222222';
+const VAULT_WITHDRAW_CONTRACT = '0x3333333333333333333333333333333333333333';
+const VAULT_ADDRESS = '0x4444444444444444444444444444444444444444';
+const USDC_ADDRESS = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 const PROJECTED_HF_WAD = 1_900_000_000_000_000_000n;
 
 type WatchdogReceipt = { status: number; hash: string };
@@ -16,11 +19,14 @@ type WaitableTransaction = {
 type WatchdogInternals = {
   getTokenBalance: (...args: unknown[]) => Promise<bigint>;
   getTokenAllowance: (...args: unknown[]) => Promise<bigint>;
+  getVaultMaxWithdraw: (...args: unknown[]) => Promise<bigint>;
   findRequiredAmountRawGeneric: (...args: unknown[]) => Promise<bigint | null>;
   previewResultingHf: (...args: unknown[]) => Promise<bigint>;
+  previewResultingHfMorpho: (...args: unknown[]) => Promise<bigint>;
   getGasPriceGwei: (...args: unknown[]) => Promise<number>;
   getEthBalance: (...args: unknown[]) => Promise<number>;
   submitRescueTransaction: (...args: unknown[]) => Promise<string>;
+  submitVaultWithdrawTransaction: (...args: unknown[]) => Promise<string>;
   waitForReceiptOrReplacement: (
     tx: WaitableTransaction,
     expectedTo: string,
@@ -46,6 +52,82 @@ function createConfig(overrides: Partial<WatchdogConfig> = {}): WatchdogConfig {
     rescueContract: RESCUE_CONTRACT,
     morphoRescueContract: '',
     maxGasGwei: 50,
+    preRescueEnabled: false,
+    preRescueTriggerHF: 1.7,
+    vaultWithdrawContract: '',
+    maxVaultWithdrawAmount: 500,
+    ...overrides,
+  };
+}
+
+function createLoanWithHF(targetHF: number): LoanPosition {
+  // HF = liqThreshold * suppliedUsd / borrowedUsd. With lt=0.75, supplied=3200:
+  // borrowedUsd = 0.75 * 3200 / targetHF
+  const borrowedUsd = (0.75 * 3200) / targetHF;
+  return {
+    id: 'loan-1',
+    marketName: 'proto_mainnet_v3',
+    borrowed: [
+      {
+        symbol: 'USDC',
+        address: USDC_ADDRESS,
+        decimals: 6,
+        amount: borrowedUsd,
+        usdPrice: 1,
+        usdValue: borrowedUsd,
+        collateralEnabled: false,
+        maxLTV: 0,
+        liqThreshold: 0,
+        supplyRate: 0,
+        borrowRate: 0.05,
+      },
+    ],
+    supplied: [
+      {
+        symbol: 'WBTC',
+        address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+        decimals: 8,
+        amount: 0.08,
+        usdPrice: 40_000,
+        usdValue: 3_200,
+        collateralEnabled: true,
+        maxLTV: 0.7,
+        liqThreshold: 0.75,
+        supplyRate: 0,
+        borrowRate: 0,
+      },
+    ],
+    totalSuppliedUsd: 3_200,
+    totalBorrowedUsd: borrowedUsd,
+  };
+}
+
+function createVault(overrides: Partial<MorphoVaultPosition> = {}): MorphoVaultPosition {
+  return {
+    id: 'vault-1',
+    kind: 'morpho-vault',
+    protocol: 'morpho',
+    vaultAddress: VAULT_ADDRESS,
+    vaultName: 'Gauntlet USDC Prime',
+    vaultSymbol: 'gtUSDC',
+    asset: {
+      symbol: 'USDC',
+      address: USDC_ADDRESS,
+      decimals: 6,
+      amount: 1000,
+      usdPrice: 1,
+      usdValue: 1000,
+      collateralEnabled: false,
+      maxLTV: 0,
+      liqThreshold: 0,
+      supplyRate: 0,
+      borrowRate: 0,
+    },
+    shares: 1000,
+    totalAssets: 1000,
+    totalAssetsUsd: 1000,
+    apy: 0.05,
+    netApy: 0.05,
     ...overrides,
   };
 }
@@ -295,4 +377,240 @@ test('failed rescue tx logs error, sets cooldown, and notifies', async () => {
   assert.equal(messages.length, 1);
   assert.match(messages[0]!, /Rescue failed/);
   assert.match(messages[0]!, /Borrow rate: <b>5\.00%<\/b>/);
+});
+
+// ---------- Layer 0: pre-rescue vault withdrawal ----------
+
+function stubPreRescueEvaluation(
+  watchdog: Watchdog,
+  overrides: Partial<WatchdogInternals> = {},
+): WatchdogInternals {
+  const internals = getWatchdogInternals(watchdog);
+  Object.assign(internals, {
+    getTokenBalance: async () => 0n, // empty wallet
+    getVaultMaxWithdraw: async () => 1_000_000_000n, // 1000 USDC withdrawable
+    findRequiredAmountRawGeneric: async () => 200_000_000n, // need 200 USDC (6 decimals)
+    previewResultingHf: async () => 1_900_000_000_000_000_000n,
+    getGasPriceGwei: async () => 10,
+    getEthBalance: async () => 1,
+    submitVaultWithdrawTransaction: async () => '0xvaulttx',
+    ...overrides,
+  });
+  return internals;
+}
+
+test('pre-rescue: HF above preRescueTriggerHF does nothing', async () => {
+  const { watchdog } = createWatchdog(
+    createConfig({
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+    }),
+  );
+  stubPreRescueEvaluation(watchdog);
+
+  await watchdog.evaluate(createLoanWithHF(2.0), WALLET, [createVault()]);
+
+  assert.equal(watchdog.getLog().length, 0);
+});
+
+test('pre-rescue: HF below triggerHF falls through to layer 1', async () => {
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: true,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+    }),
+  );
+  // Set up layer-1 stubs
+  stubEvaluation(watchdog, {
+    findRequiredAmountRawGeneric: async () => 2_500_000n,
+    previewResultingHf: async (...args: unknown[]) => {
+      const amount = args.at(-1);
+      return typeof amount === 'bigint' && amount > 0n
+        ? 1_900_000_000_000_000_000n
+        : 1_500_000_000_000_000_000n;
+    },
+  });
+
+  await watchdog.evaluate(createLoanWithHF(1.5), WALLET, [createVault()]);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'dry-run');
+});
+
+test('pre-rescue: HF in buffer band with matching vault triggers vault withdrawal (live)', async () => {
+  const { watchdog, messages } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+    }),
+  );
+  stubPreRescueEvaluation(watchdog);
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault()]);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'vault-withdraw');
+  assert.equal(log[0]?.txHash, '0xvaulttx');
+  assert.equal(log[0]?.vaultAddress, VAULT_ADDRESS);
+  assert.equal(log[0]?.repayAmount, 200);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0]!, /Pre-rescue vault withdrawal/);
+});
+
+test('pre-rescue: dry-run logs vault-withdraw-dry-run', async () => {
+  const { watchdog, messages } = createWatchdog(
+    createConfig({
+      dryRun: true,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+    }),
+  );
+  stubPreRescueEvaluation(watchdog);
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault()]);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'vault-withdraw-dry-run');
+  assert.equal(messages.length, 1);
+  assert.match(messages[0]!, /Pre-rescue DRY RUN/);
+});
+
+test('pre-rescue: skips when wallet already holds enough', async () => {
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+    }),
+  );
+  stubPreRescueEvaluation(watchdog, {
+    getTokenBalance: async () => 500_000_000n, // 500 USDC, more than 200 needed
+  });
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault()]);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'skipped');
+  assert.match(log[0]?.reason ?? '', /wallet already holds/);
+});
+
+test('pre-rescue: skips when no matching vault', async () => {
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+    }),
+  );
+  stubPreRescueEvaluation(watchdog);
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, []);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'skipped');
+  assert.match(log[0]?.reason ?? '', /no Morpho vault with withdrawable/);
+});
+
+test('pre-rescue: capacity calc uses wallet + vault (does not under-skip)', async () => {
+  // Scenario from review feedback: need 800 USDC, wallet has 400, maxVaultWithdraw=500.
+  // Old behavior wrongly skipped because 500 alone didn't reach target HF.
+  // New behavior must run findRequiredAmount with bound = min(wallet+vault, maxRepay)
+  // = min(400 + 500, 500 default maxRepay) = 500, and search returns 500 which is
+  // achievable. Wallet 400 < needed 500 → withdraw shortfall 100.
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+      maxVaultWithdrawAmount: 500,
+      maxRepayAmount: 500,
+    }),
+  );
+  let boundSeen: bigint | null = null;
+  stubPreRescueEvaluation(watchdog, {
+    getTokenBalance: async () => 400_000_000n, // 400 USDC in wallet
+    getVaultMaxWithdraw: async () => 10_000_000_000n, // plenty in vault
+    findRequiredAmountRawGeneric: async (...args: unknown[]) => {
+      boundSeen = args[2] as bigint;
+      return 500_000_000n; // need 500 total
+    },
+  });
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault()]);
+
+  assert.equal(boundSeen, 500_000_000n);
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'vault-withdraw');
+  assert.equal(log[0]?.repayAmount, 100); // shortfall = 500 - 400
+});
+
+test('pre-rescue: caps withdrawal at ERC-4626 maxWithdraw', async () => {
+  // Vault reports totalAssets=10_000 via Morpho API but maxWithdraw returns
+  // only 75 USDC for this user. The withdrawal must respect maxWithdraw.
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+      maxVaultWithdrawAmount: 500,
+    }),
+  );
+  let capturedAmount: bigint | null = null;
+  stubPreRescueEvaluation(watchdog, {
+    getVaultMaxWithdraw: async () => 75_000_000n, // 75 USDC withdrawable
+    findRequiredAmountRawGeneric: async () => 75_000_000n, // capped at capacity=75
+    submitVaultWithdrawTransaction: async (...args: unknown[]) => {
+      capturedAmount = args[3] as bigint;
+      return '0xvaulttx';
+    },
+  });
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault({ totalAssets: 10_000 })]);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'vault-withdraw');
+  assert.equal(log[0]?.repayAmount, 75);
+  assert.equal(capturedAmount, 75_000_000n);
+});
+
+test('pre-rescue: disabled flag bypasses layer 0 entirely', async () => {
+  const { watchdog } = createWatchdog(
+    createConfig({
+      preRescueEnabled: false,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+    }),
+  );
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault()]);
+
+  // HF=1.67 is above triggerHF=1.65 so layer 1 also skips. With preRescue off, no log.
+  assert.equal(watchdog.getLog().length, 0);
+});
+
+test('pre-rescue: caps withdrawal at maxVaultWithdrawAmount', async () => {
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+      maxVaultWithdrawAmount: 50,
+    }),
+  );
+  let capturedAmount: bigint | null = null;
+  stubPreRescueEvaluation(watchdog, {
+    findRequiredAmountRawGeneric: async () => 50_000_000n, // capped by maxVaultWithdrawRaw=50_000_000n
+    submitVaultWithdrawTransaction: async (...args: unknown[]) => {
+      capturedAmount = args[3] as bigint;
+      return '0xvaulttx';
+    },
+  });
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault({ totalAssets: 10_000 })]);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'vault-withdraw');
+  assert.equal(log[0]?.repayAmount, 50);
+  assert.equal(capturedAmount, 50_000_000n);
 });

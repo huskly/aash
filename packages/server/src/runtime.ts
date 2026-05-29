@@ -11,6 +11,9 @@ type WatchdogStatusSummary = {
   aaveRescueContract: string;
   morphoRescueContract: string;
   recentActions: number;
+  preRescueEnabled: boolean;
+  preRescueTriggerHF: number;
+  vaultWithdrawContract: string;
 };
 
 export function shouldRunMonitor(config: AlertConfig): boolean {
@@ -45,6 +48,20 @@ export function validateWatchdogThresholds(
     return 'watchdog requires at least one valid rescue contract when enabled';
   }
 
+  if (merged.preRescueEnabled && merged.preRescueTriggerHF <= merged.triggerHF) {
+    return 'watchdog.preRescueTriggerHF must be greater than watchdog.triggerHF';
+  }
+  if (merged.maxVaultWithdrawAmount <= 0) {
+    return 'watchdog.maxVaultWithdrawAmount must be greater than 0';
+  }
+  const hasValidVaultContract = /^0x[a-fA-F0-9]{40}$/.test(merged.vaultWithdrawContract);
+  if (merged.vaultWithdrawContract && !hasValidVaultContract) {
+    return 'watchdog.vaultWithdrawContract must be a valid Ethereum address when set';
+  }
+  if (merged.preRescueEnabled && !hasValidVaultContract) {
+    return 'watchdog.preRescueEnabled requires a valid vaultWithdrawContract';
+  }
+
   return null;
 }
 
@@ -64,6 +81,9 @@ export function formatWatchdogStatusMessage(
     `Min resulting HF: <b>${summary.minResultingHF}</b>`,
     `Aave rescue contract: <b>${summary.aaveRescueContract || 'Not set'}</b>`,
     `Morpho rescue contract: <b>${summary.morphoRescueContract || 'Not set'}</b>`,
+    `Pre-rescue: <b>${summary.preRescueEnabled ? 'Enabled' : 'Disabled'}</b>`,
+    `Pre-rescue trigger HF: <b>${summary.preRescueTriggerHF}</b>`,
+    `Vault withdraw contract: <b>${summary.vaultWithdrawContract || 'Not set'}</b>`,
     `Total actions logged: ${summary.recentActions}`,
   ];
 
