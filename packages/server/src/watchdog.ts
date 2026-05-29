@@ -28,6 +28,10 @@ const VAULT_WITHDRAW_INTERFACE = new Interface([
   'function withdraw((address user,address vault,uint256 assets,uint256 deadline) params)',
 ]);
 
+const ERC4626_INTERFACE = new Interface([
+  'function maxWithdraw(address owner) view returns (uint256)',
+]);
+
 const MIN_ETH_FOR_GAS = 0.005;
 const TELEGRAM_MESSAGE_LIMIT = 3900;
 export type WatchdogLogEntry = {
@@ -591,40 +595,32 @@ export class Watchdog {
       : (amount: bigint) =>
           this.previewResultingHf(provider, rescueContract, walletAddress, debtToken, amount);
 
-    let neededRaw: bigint;
-    let walletBalanceRaw: bigint;
-    try {
-      const targetHFWad = this.toWad(config.targetHF);
-      const maxVaultWithdrawRaw = parseUnits(
-        config.maxVaultWithdrawAmount.toFixed(debtDecimals),
-        debtDecimals,
-      );
-      walletBalanceRaw = await this.getTokenBalance(provider, debtToken, walletAddress);
+    // 1. Find candidate vaults (matching the debt token) and query each one's
+    //    user-specific maxWithdraw on-chain. We can't trust Morpho API
+    //    `totalAssets` as a proxy for "withdrawable by this user" — it's a
+    //    vault-wide total, not per-owner, and ignores liquidity / share-balance
+    //    constraints. Pick the candidate with the largest withdrawable amount.
+    const debtTokenLower = debtToken.toLowerCase();
+    const candidates = vaults.filter((v) => v.asset.address.toLowerCase() === debtTokenLower);
 
-      // Compute how much debt repay would be required to reach targetHF, capped
-      // by maxVaultWithdraw. We don't fold in wallet balance here — that becomes
-      // the "do we even need to withdraw?" check below.
-      const computed = await this.findRequiredAmountRawGeneric(
-        previewFn,
-        targetHFWad,
-        maxVaultWithdrawRaw,
-      );
-      if (computed === null || computed <= 0n) {
-        this.addLog({
-          timestamp: now,
-          loanId: loan.id,
-          wallet: walletAddress,
-          protocol,
-          action: 'skipped',
-          reason: `Pre-rescue: ${this.toFormattedAmount(maxVaultWithdrawRaw, debtDecimals).toFixed(2)} ${debtSymbol} not enough to reach target HF`,
-          healthFactor,
-          repayAmount: 0,
-          repayAssetSymbol: debtSymbol,
-          projectedHF: healthFactor,
-        });
-        return;
-      }
-      neededRaw = computed;
+    let walletBalanceRaw: bigint;
+    let vaultMaxWithdrawals: { vault: MorphoVaultPosition; maxWithdrawRaw: bigint }[];
+    try {
+      const [balance, maxWithdrawals] = await Promise.all([
+        this.getTokenBalance(provider, debtToken, walletAddress),
+        Promise.all(
+          candidates.map(async (vault) => ({
+            vault,
+            maxWithdrawRaw: await this.getVaultMaxWithdraw(
+              provider,
+              vault.vaultAddress,
+              walletAddress,
+            ),
+          })),
+        ),
+      ]);
+      walletBalanceRaw = balance;
+      vaultMaxWithdrawals = maxWithdrawals;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.addLog({
@@ -642,6 +638,82 @@ export class Watchdog {
       return;
     }
 
+    const bestVault = vaultMaxWithdrawals
+      .filter((entry) => entry.maxWithdrawRaw > 0n)
+      .reduce<
+        { vault: MorphoVaultPosition; maxWithdrawRaw: bigint } | undefined
+      >((best, entry) => (!best || entry.maxWithdrawRaw > best.maxWithdrawRaw ? entry : best), undefined);
+
+    if (!bestVault) {
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: `Pre-rescue: no Morpho vault with withdrawable ${debtSymbol} found`,
+        healthFactor,
+        repayAmount: 0,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+      });
+      return;
+    }
+
+    // 2. Compute total repay capacity (wallet + vault), capped by both
+    //    maxVaultWithdrawAmount (per-action vault cap) and maxRepayAmount
+    //    (layer-1's eventual cap — withdrawing more than this can't be used
+    //    by the follow-up rescue and is wasted gas / slippage).
+    const maxVaultWithdrawRaw = parseUnits(
+      config.maxVaultWithdrawAmount.toFixed(debtDecimals),
+      debtDecimals,
+    );
+    const maxRepayRaw = parseUnits(config.maxRepayAmount.toFixed(debtDecimals), debtDecimals);
+    const usableVaultRaw = minBigInt(bestVault.maxWithdrawRaw, maxVaultWithdrawRaw);
+    const totalCapacityRaw = minBigInt(walletBalanceRaw + usableVaultRaw, maxRepayRaw);
+
+    let neededRaw: bigint;
+    try {
+      const targetHFWad = this.toWad(config.targetHF);
+      const computed = await this.findRequiredAmountRawGeneric(
+        previewFn,
+        targetHFWad,
+        totalCapacityRaw,
+      );
+      if (computed === null || computed <= 0n) {
+        this.addLog({
+          timestamp: now,
+          loanId: loan.id,
+          wallet: walletAddress,
+          protocol,
+          action: 'skipped',
+          reason: `Pre-rescue: ${this.toFormattedAmount(totalCapacityRaw, debtDecimals).toFixed(2)} ${debtSymbol} (wallet + vault, capped) not enough to reach target HF`,
+          healthFactor,
+          repayAmount: 0,
+          repayAssetSymbol: debtSymbol,
+          projectedHF: healthFactor,
+        });
+        return;
+      }
+      neededRaw = computed;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: `Pre-rescue HF preview failed: ${message}`,
+        healthFactor,
+        repayAmount: 0,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+      });
+      return;
+    }
+
+    // 3. If wallet already covers needed repay, layer 1 doesn't need help.
     if (walletBalanceRaw >= neededRaw) {
       this.addLog({
         timestamp: now,
@@ -658,40 +730,13 @@ export class Watchdog {
       return;
     }
 
-    const debtTokenLower = debtToken.toLowerCase();
-    const matchingVault = vaults
-      .filter((v) => v.asset.address.toLowerCase() === debtTokenLower && v.totalAssets > 0)
-      .reduce<
-        MorphoVaultPosition | undefined
-      >((best, v) => (!best || v.totalAssets > best.totalAssets ? v : best), undefined);
-
-    if (!matchingVault) {
-      this.addLog({
-        timestamp: now,
-        loanId: loan.id,
-        wallet: walletAddress,
-        protocol,
-        action: 'skipped',
-        reason: `Pre-rescue: no Morpho vault holding ${debtSymbol} found`,
-        healthFactor,
-        repayAmount: 0,
-        repayAssetSymbol: debtSymbol,
-        projectedHF: healthFactor,
-      });
-      return;
-    }
-
+    // 4. Withdraw only the shortfall, bounded by what the vault will actually
+    //    allow this user to pull and by maxVaultWithdrawAmount.
     const shortfallRaw = neededRaw - walletBalanceRaw;
-    const vaultAssetsRaw = parseUnits(
-      matchingVault.totalAssets.toFixed(debtDecimals),
-      debtDecimals,
-    );
-    const maxVaultWithdrawRaw = parseUnits(
-      config.maxVaultWithdrawAmount.toFixed(debtDecimals),
-      debtDecimals,
-    );
-    const withdrawRaw = minBigInt(shortfallRaw, vaultAssetsRaw, maxVaultWithdrawRaw);
+    const withdrawRaw = minBigInt(shortfallRaw, usableVaultRaw);
     if (withdrawRaw <= 0n) return;
+
+    const matchingVault = bestVault.vault;
 
     const withdrawAmount = this.toFormattedAmount(withdrawRaw, debtDecimals);
 
@@ -999,6 +1044,17 @@ export class Watchdog {
     const result = await provider.call({ to: token, data });
     const [balance] = ERC20_INTERFACE.decodeFunctionResult('balanceOf', result);
     return BigInt(balance);
+  }
+
+  private async getVaultMaxWithdraw(
+    provider: JsonRpcProvider,
+    vault: string,
+    owner: string,
+  ): Promise<bigint> {
+    const data = ERC4626_INTERFACE.encodeFunctionData('maxWithdraw', [owner]);
+    const result = await provider.call({ to: vault, data });
+    const [maxAssets] = ERC4626_INTERFACE.decodeFunctionResult('maxWithdraw', result);
+    return BigInt(maxAssets);
   }
 
   private async getTokenAllowance(

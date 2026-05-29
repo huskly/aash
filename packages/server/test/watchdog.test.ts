@@ -19,6 +19,7 @@ type WaitableTransaction = {
 type WatchdogInternals = {
   getTokenBalance: (...args: unknown[]) => Promise<bigint>;
   getTokenAllowance: (...args: unknown[]) => Promise<bigint>;
+  getVaultMaxWithdraw: (...args: unknown[]) => Promise<bigint>;
   findRequiredAmountRawGeneric: (...args: unknown[]) => Promise<bigint | null>;
   previewResultingHf: (...args: unknown[]) => Promise<bigint>;
   previewResultingHfMorpho: (...args: unknown[]) => Promise<bigint>;
@@ -387,6 +388,7 @@ function stubPreRescueEvaluation(
   const internals = getWatchdogInternals(watchdog);
   Object.assign(internals, {
     getTokenBalance: async () => 0n, // empty wallet
+    getVaultMaxWithdraw: async () => 1_000_000_000n, // 1000 USDC withdrawable
     findRequiredAmountRawGeneric: async () => 200_000_000n, // need 200 USDC (6 decimals)
     previewResultingHf: async () => 1_900_000_000_000_000_000n,
     getGasPriceGwei: async () => 10,
@@ -508,7 +510,69 @@ test('pre-rescue: skips when no matching vault', async () => {
 
   const log = watchdog.getLog();
   assert.equal(log[0]?.action, 'skipped');
-  assert.match(log[0]?.reason ?? '', /no Morpho vault holding/);
+  assert.match(log[0]?.reason ?? '', /no Morpho vault with withdrawable/);
+});
+
+test('pre-rescue: capacity calc uses wallet + vault (does not under-skip)', async () => {
+  // Scenario from review feedback: need 800 USDC, wallet has 400, maxVaultWithdraw=500.
+  // Old behavior wrongly skipped because 500 alone didn't reach target HF.
+  // New behavior must run findRequiredAmount with bound = min(wallet+vault, maxRepay)
+  // = min(400 + 500, 500 default maxRepay) = 500, and search returns 500 which is
+  // achievable. Wallet 400 < needed 500 → withdraw shortfall 100.
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+      maxVaultWithdrawAmount: 500,
+      maxRepayAmount: 500,
+    }),
+  );
+  let boundSeen: bigint | null = null;
+  stubPreRescueEvaluation(watchdog, {
+    getTokenBalance: async () => 400_000_000n, // 400 USDC in wallet
+    getVaultMaxWithdraw: async () => 10_000_000_000n, // plenty in vault
+    findRequiredAmountRawGeneric: async (...args: unknown[]) => {
+      boundSeen = args[2] as bigint;
+      return 500_000_000n; // need 500 total
+    },
+  });
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault()]);
+
+  assert.equal(boundSeen, 500_000_000n);
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'vault-withdraw');
+  assert.equal(log[0]?.repayAmount, 100); // shortfall = 500 - 400
+});
+
+test('pre-rescue: caps withdrawal at ERC-4626 maxWithdraw', async () => {
+  // Vault reports totalAssets=10_000 via Morpho API but maxWithdraw returns
+  // only 75 USDC for this user. The withdrawal must respect maxWithdraw.
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+      maxVaultWithdrawAmount: 500,
+    }),
+  );
+  let capturedAmount: bigint | null = null;
+  stubPreRescueEvaluation(watchdog, {
+    getVaultMaxWithdraw: async () => 75_000_000n, // 75 USDC withdrawable
+    findRequiredAmountRawGeneric: async () => 75_000_000n, // capped at capacity=75
+    submitVaultWithdrawTransaction: async (...args: unknown[]) => {
+      capturedAmount = args[3] as bigint;
+      return '0xvaulttx';
+    },
+  });
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault({ totalAssets: 10_000 })]);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'vault-withdraw');
+  assert.equal(log[0]?.repayAmount, 75);
+  assert.equal(capturedAmount, 75_000_000n);
 });
 
 test('pre-rescue: disabled flag bypasses layer 0 entirely', async () => {
