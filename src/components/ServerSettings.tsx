@@ -111,7 +111,7 @@ function validateConfig(config: AlertConfig): string | null {
   if (!isPositiveFinite(watchdog.preRescueTriggerHF)) {
     return 'Pre-rescue trigger HF must be a positive number.';
   }
-  if (watchdog.preRescueTriggerHF <= watchdog.triggerHF) {
+  if (watchdog.preRescueEnabled && watchdog.preRescueTriggerHF <= watchdog.triggerHF) {
     return 'Pre-rescue trigger HF must be greater than trigger HF.';
   }
   if (!isPositiveFinite(watchdog.maxVaultWithdrawAmount)) {
