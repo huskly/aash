@@ -7,11 +7,17 @@ import {MorphoVaultWithdrawV1} from "../src/MorphoVaultWithdrawV1.sol";
 contract MockUSDC {
     mapping(address => uint256) public balanceOf;
 
-    function mint(address to, uint256 amount) external {
+    function mint(
+        address to,
+        uint256 amount
+    ) external {
         balanceOf[to] += amount;
     }
 
-    function transfer(address to, uint256 amount) external returns (bool) {
+    function transfer(
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         require(balanceOf[msg.sender] >= amount, "balance");
         balanceOf[msg.sender] -= amount;
         balanceOf[to] += amount;
@@ -23,43 +29,58 @@ contract MockUSDC {
 ///      requires the helper to be approved on `shares` to spend on behalf of
 ///      `owner`, and pays out underlying directly to `receiver`.
 contract MockVault {
-    MockUSDC public immutable underlying;
+    MockUSDC public immutable UNDERLYING;
 
     mapping(address => uint256) public shares;
     mapping(address => mapping(address => uint256)) public shareAllowance;
     uint256 public maxWithdrawOverride;
     bool public withdrawShouldRevert;
 
-    constructor(address underlying_) {
-        underlying = MockUSDC(underlying_);
+    constructor(
+        address underlying_
+    ) {
+        UNDERLYING = MockUSDC(underlying_);
     }
 
-    function depositForOwner(address owner, uint256 assets) external {
-        underlying.mint(address(this), assets);
+    function depositForOwner(
+        address owner,
+        uint256 assets
+    ) external {
+        UNDERLYING.mint(address(this), assets);
         shares[owner] += assets; // 1:1 for simplicity
     }
 
-    function approveShares(address spender, uint256 amount) external {
+    function approveShares(
+        address spender,
+        uint256 amount
+    ) external {
         shareAllowance[msg.sender][spender] = amount;
     }
 
-    function setMaxWithdraw(uint256 value) external {
+    function setMaxWithdraw(
+        uint256 value
+    ) external {
         maxWithdrawOverride = value;
     }
 
-    function setWithdrawShouldRevert(bool value) external {
+    function setWithdrawShouldRevert(
+        bool value
+    ) external {
         withdrawShouldRevert = value;
     }
 
-    function maxWithdraw(address owner) external view returns (uint256) {
+    function maxWithdraw(
+        address owner
+    ) external view returns (uint256) {
         if (maxWithdrawOverride != 0) return maxWithdrawOverride;
         return shares[owner];
     }
 
-    function withdraw(uint256 assets, address receiver, address owner)
-        external
-        returns (uint256)
-    {
+    function withdraw(
+        uint256 assets,
+        address receiver,
+        address owner
+    ) external returns (uint256) {
         require(!withdrawShouldRevert, "vault: withdraw disabled");
         if (msg.sender != owner) {
             uint256 allowed = shareAllowance[owner][msg.sender];
@@ -68,7 +89,7 @@ contract MockVault {
         }
         require(shares[owner] >= assets, "vault: insufficient shares");
         shares[owner] -= assets;
-        require(underlying.transfer(receiver, assets), "vault: transfer failed");
+        require(UNDERLYING.transfer(receiver, assets), "vault: transfer failed");
         return assets;
     }
 }
@@ -87,7 +108,7 @@ contract MorphoVaultWithdrawV1Test is Test {
         vault = new MockVault(address(usdc));
         helper = new MorphoVaultWithdrawV1(owner, executor);
 
-        vault.depositForOwner(owner, 1_000e6);
+        vault.depositForOwner(owner, 1000e6);
         vm.prank(owner);
         vault.approveShares(address(helper), type(uint256).max);
 
@@ -95,16 +116,12 @@ contract MorphoVaultWithdrawV1Test is Test {
         helper.setSupportedVault(address(vault), true);
     }
 
-    function _params(uint256 assets, uint256 deadline)
-        internal
-        view
-        returns (MorphoVaultWithdrawV1.WithdrawParams memory)
-    {
+    function _params(
+        uint256 assets,
+        uint256 deadline
+    ) internal view returns (MorphoVaultWithdrawV1.WithdrawParams memory) {
         return MorphoVaultWithdrawV1.WithdrawParams({
-            user: owner,
-            vault: address(vault),
-            assets: assets,
-            deadline: deadline
+            user: owner, vault: address(vault), assets: assets, deadline: deadline
         });
     }
 
@@ -139,7 +156,7 @@ contract MorphoVaultWithdrawV1Test is Test {
     }
 
     function test_deadlineEnforced() public {
-        vm.warp(1_000);
+        vm.warp(1000);
         vm.prank(executor);
         vm.expectRevert(MorphoVaultWithdrawV1.DeadlineExpired.selector);
         helper.withdraw(_params(100e6, 999));
@@ -186,7 +203,7 @@ contract MorphoVaultWithdrawV1Test is Test {
     }
 
     function test_previewMaxWithdrawReflectsVault() public {
-        assertEq(helper.previewMaxWithdraw(address(vault), owner), 1_000e6);
+        assertEq(helper.previewMaxWithdraw(address(vault), owner), 1000e6);
         vault.setMaxWithdraw(123e6);
         assertEq(helper.previewMaxWithdraw(address(vault), owner), 123e6);
     }

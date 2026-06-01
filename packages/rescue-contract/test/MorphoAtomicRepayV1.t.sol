@@ -12,16 +12,26 @@ contract MockToken {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
-    function mint(address to, uint256 amount) external {
+    function mint(
+        address to,
+        uint256 amount
+    ) external {
         balanceOf[to] += amount;
     }
 
-    function approve(address spender, uint256 amount) external returns (bool) {
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool) {
         allowance[msg.sender][spender] = amount;
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         uint256 allowed = allowance[from][msg.sender];
         require(allowed >= amount, "allowance");
         require(balanceOf[from] >= amount, "balance");
@@ -35,17 +45,18 @@ contract MockToken {
 contract MockMorphoOracle {
     uint256 public price;
 
-    constructor(uint256 price_) {
+    constructor(
+        uint256 price_
+    ) {
         price = price_;
     }
 }
 
 contract MockMorphoIrm {
-    function borrowRateView(IMorpho.MarketParams memory, IMorpho.Market memory)
-        external
-        pure
-        returns (uint256)
-    {
+    function borrowRateView(
+        IMorpho.MarketParams memory,
+        IMorpho.Market memory
+    ) external pure returns (uint256) {
         return 0;
     }
 }
@@ -69,28 +80,32 @@ contract MockMorpho {
     mapping(bytes32 => mapping(address => PositionData)) public positionData;
     mapping(bytes32 => MarketData) public marketData;
 
-    function setPosition(bytes32 id, address user, PositionData memory data) external {
+    function setPosition(
+        bytes32 id,
+        address user,
+        PositionData memory data
+    ) external {
         positionData[id][user] = data;
     }
 
-    function setMarket(bytes32 id, MarketData memory data) external {
+    function setMarket(
+        bytes32 id,
+        MarketData memory data
+    ) external {
         marketData[id] = data;
     }
 
-    function position(bytes32 id, address user)
-        external
-        view
-        returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral)
-    {
+    function position(
+        bytes32 id,
+        address user
+    ) external view returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral) {
         PositionData memory data = positionData[id][user];
         return (data.supplyShares, data.borrowShares, data.collateral);
     }
 
-    function market(bytes32 id)
-        external
-        view
-        returns (uint128, uint128, uint128, uint128, uint128, uint128)
-    {
+    function market(
+        bytes32 id
+    ) external view returns (uint128, uint128, uint128, uint128, uint128, uint128) {
         MarketData memory data = marketData[id];
         return (
             data.totalSupplyAssets,
@@ -125,7 +140,9 @@ contract MockMorpho {
         return (assets, sharesToReduce);
     }
 
-    function _toUint128(uint256 value) internal pure returns (uint128) {
+    function _toUint128(
+        uint256 value
+    ) internal pure returns (uint128) {
         require(value <= type(uint128).max, "uint128 overflow");
         // forge-lint: disable-next-line(unsafe-typecast)
         return uint128(value);
@@ -191,7 +208,9 @@ contract MorphoAtomicRepayV1Test is Test {
         morpho.setPosition(
             marketId,
             owner,
-            MockMorpho.PositionData({supplyShares: 0, borrowShares: 70_000_000, collateral: 100_000_000})
+            MockMorpho.PositionData({
+                supplyShares: 0, borrowShares: 70_000_000, collateral: 100_000_000
+            })
         );
 
         morpho.setMarket(
@@ -209,7 +228,9 @@ contract MorphoAtomicRepayV1Test is Test {
         morpho.setPosition(
             secondMarketId,
             owner,
-            MockMorpho.PositionData({supplyShares: 0, borrowShares: 50_000_000, collateral: 90_000_000})
+            MockMorpho.PositionData({
+                supplyShares: 0, borrowShares: 50_000_000, collateral: 90_000_000
+            })
         );
 
         morpho.setMarket(

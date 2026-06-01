@@ -2,9 +2,19 @@
 pragma solidity 0.8.27;
 
 interface IERC20 {
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function allowance(address owner, address spender) external view returns (uint256);
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool);
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool);
+    function allowance(
+        address owner,
+        address spender
+    ) external view returns (uint256);
 }
 
 interface IERC20Metadata {
@@ -12,11 +22,16 @@ interface IERC20Metadata {
 }
 
 interface IAavePool {
-    function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf)
-        external
-        returns (uint256);
+    function repay(
+        address asset,
+        uint256 amount,
+        uint256 interestRateMode,
+        address onBehalfOf
+    ) external returns (uint256);
 
-    function getUserAccountData(address user)
+    function getUserAccountData(
+        address user
+    )
         external
         view
         returns (
@@ -34,7 +49,9 @@ interface IAaveAddressesProvider {
 }
 
 interface IAaveOracle {
-    function getAssetPrice(address asset) external view returns (uint256);
+    function getAssetPrice(
+        address asset
+    ) external view returns (uint256);
 }
 
 contract AaveAtomicRepayV1 {
@@ -90,7 +107,12 @@ contract AaveAtomicRepayV1 {
         _;
     }
 
-    constructor(address owner_, address executor_, address pool_, address addressesProvider_) {
+    constructor(
+        address owner_,
+        address executor_,
+        address pool_,
+        address addressesProvider_
+    ) {
         if (
             owner_ == address(0) || executor_ == address(0) || pool_ == address(0)
                 || addressesProvider_ == address(0)
@@ -107,65 +129,67 @@ contract AaveAtomicRepayV1 {
         emit ExecutorUpdated(address(0), executor_);
     }
 
-    function setOwner(address newOwner) external onlyOwner {
+    function setOwner(
+        address newOwner
+    ) external onlyOwner {
         if (newOwner == address(0)) revert InvalidAddress();
         emit OwnershipTransferred(owner, newOwner);
         owner = newOwner;
     }
 
-    function setExecutor(address newExecutor) external onlyOwner {
+    function setExecutor(
+        address newExecutor
+    ) external onlyOwner {
         if (newExecutor == address(0)) revert InvalidAddress();
         emit ExecutorUpdated(executor, newExecutor);
         executor = newExecutor;
     }
 
-    function setSupportedAsset(address asset, bool enabled) external onlyOwner {
+    function setSupportedAsset(
+        address asset,
+        bool enabled
+    ) external onlyOwner {
         if (asset == address(0)) revert InvalidAddress();
         supportedAsset[asset] = enabled;
         emit AssetSupportUpdated(asset, enabled);
     }
 
-    function rescue(RescueParams calldata params) external onlyExecutor {
+    function rescue(
+        RescueParams calldata params
+    ) external onlyExecutor {
         if (params.user != owner) revert UserNotOwner();
         if (params.deadline < block.timestamp) revert DeadlineExpired();
         if (!supportedAsset[params.asset]) revert AssetNotSupported();
         if (params.amount == 0) revert InvalidAmount();
 
-        (, , , , , uint256 hfBefore) = POOL.getUserAccountData(params.user);
+        (,,,,, uint256 hfBefore) = POOL.getUserAccountData(params.user);
 
         _transferIn(params.asset, params.user, params.amount);
         _forceApprove(params.asset, address(POOL));
 
         POOL.repay(params.asset, params.amount, VARIABLE_RATE_MODE, params.user);
 
-        (, , , , , uint256 hfAfter) = POOL.getUserAccountData(params.user);
+        (,,,,, uint256 hfAfter) = POOL.getUserAccountData(params.user);
         if (hfAfter < params.minResultingHf) {
             revert ResultingHFTooLow(hfAfter, params.minResultingHf);
         }
 
         emit RescueExecuted(
-            params.user,
-            params.asset,
-            params.amount,
-            hfBefore,
-            hfAfter,
-            params.minResultingHf
+            params.user, params.asset, params.amount, hfBefore, hfAfter, params.minResultingHf
         );
     }
 
-    function previewResultingHf(address user, address asset, uint256 repayAmount)
-        external
-        view
-        returns (uint256)
-    {
+    function previewResultingHf(
+        address user,
+        address asset,
+        uint256 repayAmount
+    ) external view returns (uint256) {
         if (!supportedAsset[asset]) revert AssetNotSupported();
 
         (
             uint256 totalCollateralBase,
-            uint256 totalDebtBase,
-            ,
-            uint256 currentLiquidationThreshold,
-            ,
+            uint256 totalDebtBase,,
+            uint256 currentLiquidationThreshold,,
             uint256 currentHf
         ) = POOL.getUserAccountData(user);
 
@@ -193,12 +217,19 @@ contract AaveAtomicRepayV1 {
         return (weightedCollateral * WAD) / newDebtBase;
     }
 
-    function _transferIn(address asset, address from, uint256 amount) internal {
+    function _transferIn(
+        address asset,
+        address from,
+        uint256 amount
+    ) internal {
         bool ok = IERC20(asset).transferFrom(from, address(this), amount);
         if (!ok) revert TokenTransferFailed();
     }
 
-    function _forceApprove(address asset, address spender) internal {
+    function _forceApprove(
+        address asset,
+        address spender
+    ) internal {
         uint256 current = IERC20(asset).allowance(address(this), spender);
         if (current < type(uint256).max) {
             if (current != 0) {

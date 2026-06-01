@@ -2,9 +2,19 @@
 pragma solidity 0.8.27;
 
 interface IERC20 {
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
-    function approve(address spender, uint256 amount) external returns (bool);
-    function allowance(address owner, address spender) external view returns (uint256);
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool);
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool);
+    function allowance(
+        address owner,
+        address spender
+    ) external view returns (uint256);
 }
 
 interface IMorpho {
@@ -33,12 +43,14 @@ interface IMorpho {
         bytes calldata data
     ) external returns (uint256, uint256);
 
-    function position(bytes32 id, address user)
-        external
-        view
-        returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral);
+    function position(
+        bytes32 id,
+        address user
+    ) external view returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral);
 
-    function market(bytes32 id)
+    function market(
+        bytes32 id
+    )
         external
         view
         returns (
@@ -52,10 +64,10 @@ interface IMorpho {
 }
 
 interface IIrm {
-    function borrowRateView(IMorpho.MarketParams memory marketParams, IMorpho.Market memory market)
-        external
-        view
-        returns (uint256);
+    function borrowRateView(
+        IMorpho.MarketParams memory marketParams,
+        IMorpho.Market memory market
+    ) external view returns (uint256);
 }
 
 interface IOracle {
@@ -114,7 +126,11 @@ contract MorphoAtomicRepayV1 {
         _;
     }
 
-    constructor(address owner_, address executor_, address morpho_) {
+    constructor(
+        address owner_,
+        address executor_,
+        address morpho_
+    ) {
         if (owner_ == address(0) || executor_ == address(0) || morpho_ == address(0)) {
             revert InvalidAddress();
         }
@@ -127,28 +143,34 @@ contract MorphoAtomicRepayV1 {
         emit ExecutorUpdated(address(0), executor_);
     }
 
-    function setOwner(address newOwner) external onlyOwner {
+    function setOwner(
+        address newOwner
+    ) external onlyOwner {
         if (newOwner == address(0)) revert InvalidAddress();
         emit OwnershipTransferred(owner, newOwner);
         owner = newOwner;
     }
 
-    function setExecutor(address newExecutor) external onlyOwner {
+    function setExecutor(
+        address newExecutor
+    ) external onlyOwner {
         if (newExecutor == address(0)) revert InvalidAddress();
         emit ExecutorUpdated(executor, newExecutor);
         executor = newExecutor;
     }
 
-    function setSupportedMarket(IMorpho.MarketParams calldata marketParams, bool enabled)
-        external
-        onlyOwner
-    {
+    function setSupportedMarket(
+        IMorpho.MarketParams calldata marketParams,
+        bool enabled
+    ) external onlyOwner {
         bytes32 id = _marketId(marketParams);
         supportedMarket[id] = enabled;
         emit MarketSupportUpdated(id, enabled);
     }
 
-    function rescue(RescueParams calldata params) external onlyExecutor {
+    function rescue(
+        RescueParams calldata params
+    ) external onlyExecutor {
         if (params.user != owner) revert UserNotOwner();
         if (params.deadline < block.timestamp) revert DeadlineExpired();
         if (params.amount == 0) revert InvalidAmount();
@@ -207,11 +229,9 @@ contract MorphoAtomicRepayV1 {
         return _wDivDown(maxBorrow, effectiveBorrow);
     }
 
-    function _marketId(IMorpho.MarketParams calldata marketParams)
-        internal
-        pure
-        returns (bytes32)
-    {
+    function _marketId(
+        IMorpho.MarketParams calldata marketParams
+    ) internal pure returns (bytes32) {
         bytes32 marketId;
         assembly ("memory-safe") {
             let ptr := mload(0x40)
@@ -225,11 +245,9 @@ contract MorphoAtomicRepayV1 {
         return marketId;
     }
 
-    function _marketState(bytes32 marketId)
-        internal
-        view
-        returns (IMorpho.Market memory marketState)
-    {
+    function _marketState(
+        bytes32 marketId
+    ) internal view returns (IMorpho.Market memory marketState) {
         (
             uint128 totalSupplyAssets,
             uint128 totalSupplyShares,
@@ -258,53 +276,75 @@ contract MorphoAtomicRepayV1 {
         uint256 elapsed = block.timestamp - uint256(marketState.lastUpdate);
 
         if (elapsed != 0 && marketParams.irm != address(0)) {
-            uint256 borrowRate =
-                IIrm(marketParams.irm).borrowRateView(marketParams, marketState);
-            uint256 interest =
-                _wMulDown(totalBorrowAssets, _wTaylorCompounded(borrowRate, elapsed));
+            uint256 borrowRate = IIrm(marketParams.irm).borrowRateView(marketParams, marketState);
+            uint256 interest = _wMulDown(totalBorrowAssets, _wTaylorCompounded(borrowRate, elapsed));
             totalBorrowAssets += interest;
         }
 
         return _toAssetsUp(borrowShares, totalBorrowAssets, uint256(marketState.totalBorrowShares));
     }
 
-    function _toAssetsUp(uint256 shares, uint256 totalAssets, uint256 totalShares)
-        internal
-        pure
-        returns (uint256)
-    {
+    function _toAssetsUp(
+        uint256 shares,
+        uint256 totalAssets,
+        uint256 totalShares
+    ) internal pure returns (uint256) {
         return _mulDivUp(shares, totalAssets + 1, totalShares + 1e6);
     }
 
-    function _wMulDown(uint256 x, uint256 y) internal pure returns (uint256) {
+    function _wMulDown(
+        uint256 x,
+        uint256 y
+    ) internal pure returns (uint256) {
         return _mulDivDown(x, y, WAD);
     }
 
-    function _wDivDown(uint256 x, uint256 y) internal pure returns (uint256) {
+    function _wDivDown(
+        uint256 x,
+        uint256 y
+    ) internal pure returns (uint256) {
         return _mulDivDown(x, WAD, y);
     }
 
-    function _mulDivDown(uint256 x, uint256 y, uint256 d) internal pure returns (uint256) {
+    function _mulDivDown(
+        uint256 x,
+        uint256 y,
+        uint256 d
+    ) internal pure returns (uint256) {
         return (x * y) / d;
     }
 
-    function _mulDivUp(uint256 x, uint256 y, uint256 d) internal pure returns (uint256) {
+    function _mulDivUp(
+        uint256 x,
+        uint256 y,
+        uint256 d
+    ) internal pure returns (uint256) {
         return (x * y + (d - 1)) / d;
     }
 
-    function _wTaylorCompounded(uint256 x, uint256 n) internal pure returns (uint256) {
+    function _wTaylorCompounded(
+        uint256 x,
+        uint256 n
+    ) internal pure returns (uint256) {
         uint256 firstTerm = x * n;
         uint256 secondTerm = _mulDivDown(firstTerm, firstTerm, 2 * WAD);
         uint256 thirdTerm = _mulDivDown(secondTerm, firstTerm, 3 * WAD);
         return firstTerm + secondTerm + thirdTerm;
     }
 
-    function _transferIn(address asset, address from, uint256 amount) internal {
+    function _transferIn(
+        address asset,
+        address from,
+        uint256 amount
+    ) internal {
         bool ok = IERC20(asset).transferFrom(from, address(this), amount);
         if (!ok) revert TokenTransferFailed();
     }
 
-    function _forceApprove(address asset, address spender) internal {
+    function _forceApprove(
+        address asset,
+        address spender
+    ) internal {
         uint256 current = IERC20(asset).allowance(address(this), spender);
         if (current < type(uint256).max) {
             if (current != 0) {

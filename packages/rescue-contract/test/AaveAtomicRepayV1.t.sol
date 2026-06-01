@@ -12,16 +12,26 @@ contract MockToken {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
-    function mint(address to, uint256 amount) external {
+    function mint(
+        address to,
+        uint256 amount
+    ) external {
         balanceOf[to] += amount;
     }
 
-    function approve(address spender, uint256 amount) external returns (bool) {
+    function approve(
+        address spender,
+        uint256 amount
+    ) external returns (bool) {
         allowance[msg.sender][spender] = amount;
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         uint256 allowed = allowance[from][msg.sender];
         require(allowed >= amount, "allowance");
         require(balanceOf[from] >= amount, "balance");
@@ -44,15 +54,16 @@ contract MockPool {
 
     mapping(address => AccountData) public accountData;
 
-    function setUserAccountData(address user, AccountData memory data) external {
+    function setUserAccountData(
+        address user,
+        AccountData memory data
+    ) external {
         accountData[user] = data;
     }
 
-    function getUserAccountData(address user)
-        external
-        view
-        returns (uint256, uint256, uint256, uint256, uint256, uint256)
-    {
+    function getUserAccountData(
+        address user
+    ) external view returns (uint256, uint256, uint256, uint256, uint256, uint256) {
         AccountData memory data = accountData[user];
         return (
             data.totalCollateralBase,
@@ -64,7 +75,12 @@ contract MockPool {
         );
     }
 
-    function repay(address, uint256 amount, uint256, address onBehalfOf) external returns (uint256) {
+    function repay(
+        address,
+        uint256 amount,
+        uint256,
+        address onBehalfOf
+    ) external returns (uint256) {
         AccountData storage data = accountData[onBehalfOf];
         // Simplified: reduce debt and increase HF proportionally
         uint256 reduction = amount / 100; // test-only simplified conversion
@@ -77,9 +93,8 @@ contract MockPool {
         if (data.totalDebtBase == 0) {
             data.healthFactor = type(uint256).max;
         } else {
-            data.healthFactor = (
-                data.totalCollateralBase * data.currentLiquidationThreshold * 1e18
-            ) / (data.totalDebtBase * 10_000);
+            data.healthFactor = (data.totalCollateralBase * data.currentLiquidationThreshold * 1e18)
+                / (data.totalDebtBase * 10_000);
         }
         return amount;
     }
@@ -88,7 +103,9 @@ contract MockPool {
 contract MockAddressesProvider {
     address public oracle;
 
-    constructor(address oracle_) {
+    constructor(
+        address oracle_
+    ) {
         oracle = oracle_;
     }
 
@@ -100,11 +117,15 @@ contract MockAddressesProvider {
 contract MockOracle {
     uint256 public price;
 
-    constructor(uint256 price_) {
+    constructor(
+        uint256 price_
+    ) {
         price = price_;
     }
 
-    function getAssetPrice(address) external view returns (uint256) {
+    function getAssetPrice(
+        address
+    ) external view returns (uint256) {
         return price;
     }
 }
@@ -143,8 +164,8 @@ contract AaveAtomicRepayV1Test is Test {
                 totalCollateralBase: 1_000_000,
                 totalDebtBase: 750_000,
                 availableBorrowsBase: 0,
-                currentLiquidationThreshold: 7_500,
-                ltv: 7_000,
+                currentLiquidationThreshold: 7500,
+                ltv: 7000,
                 healthFactor: 1.2e18
             })
         );
@@ -204,7 +225,7 @@ contract AaveAtomicRepayV1Test is Test {
         vm.prank(executor);
         rescue.rescue(params);
 
-        (, uint256 debtAfter, , , , uint256 hfAfter) = pool.getUserAccountData(owner);
+        (, uint256 debtAfter,,,, uint256 hfAfter) = pool.getUserAccountData(owner);
         assertLt(debtAfter, 750_000);
         assertGe(hfAfter, 1.1e18);
     }

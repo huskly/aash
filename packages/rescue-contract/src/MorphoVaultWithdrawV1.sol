@@ -3,10 +3,14 @@ pragma solidity 0.8.27;
 
 interface IERC4626 {
     function asset() external view returns (address);
-    function maxWithdraw(address owner) external view returns (uint256);
-    function withdraw(uint256 assets, address receiver, address owner)
-        external
-        returns (uint256 shares);
+    function maxWithdraw(
+        address owner
+    ) external view returns (uint256);
+    function withdraw(
+        uint256 assets,
+        address receiver,
+        address owner
+    ) external returns (uint256 shares);
 }
 
 contract MorphoVaultWithdrawV1 {
@@ -38,16 +42,27 @@ contract MorphoVaultWithdrawV1 {
     mapping(address => bool) public supportedVault;
 
     modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
+        _onlyOwner();
         _;
     }
 
     modifier onlyExecutor() {
-        if (msg.sender != executor) revert NotExecutor();
+        _onlyExecutor();
         _;
     }
 
-    constructor(address owner_, address executor_) {
+    function _onlyOwner() internal view {
+        if (msg.sender != owner) revert NotOwner();
+    }
+
+    function _onlyExecutor() internal view {
+        if (msg.sender != executor) revert NotExecutor();
+    }
+
+    constructor(
+        address owner_,
+        address executor_
+    ) {
         if (owner_ == address(0) || executor_ == address(0)) revert InvalidAddress();
         owner = owner_;
         executor = executor_;
@@ -55,19 +70,26 @@ contract MorphoVaultWithdrawV1 {
         emit ExecutorUpdated(address(0), executor_);
     }
 
-    function setOwner(address newOwner) external onlyOwner {
+    function setOwner(
+        address newOwner
+    ) external onlyOwner {
         if (newOwner == address(0)) revert InvalidAddress();
         emit OwnershipTransferred(owner, newOwner);
         owner = newOwner;
     }
 
-    function setExecutor(address newExecutor) external onlyOwner {
+    function setExecutor(
+        address newExecutor
+    ) external onlyOwner {
         if (newExecutor == address(0)) revert InvalidAddress();
         emit ExecutorUpdated(executor, newExecutor);
         executor = newExecutor;
     }
 
-    function setSupportedVault(address vault, bool enabled) external onlyOwner {
+    function setSupportedVault(
+        address vault,
+        bool enabled
+    ) external onlyOwner {
         if (vault == address(0)) revert InvalidAddress();
         supportedVault[vault] = enabled;
         emit VaultSupportUpdated(vault, enabled);
@@ -77,7 +99,9 @@ contract MorphoVaultWithdrawV1 {
     /// and send them directly to `user`. The contract never custodies funds; it
     /// only orchestrates an ERC-4626 withdraw on behalf of the owner.
     /// Requires `user` to have approved this contract on the vault's share token.
-    function withdraw(WithdrawParams calldata params) external onlyExecutor {
+    function withdraw(
+        WithdrawParams calldata params
+    ) external onlyExecutor {
         if (params.user != owner) revert UserNotOwner();
         if (params.deadline < block.timestamp) revert DeadlineExpired();
         if (params.assets == 0) revert InvalidAmount();
@@ -88,7 +112,10 @@ contract MorphoVaultWithdrawV1 {
         emit VaultWithdrawExecuted(params.user, params.vault, params.assets, shares);
     }
 
-    function previewMaxWithdraw(address vault, address user) external view returns (uint256) {
+    function previewMaxWithdraw(
+        address vault,
+        address user
+    ) external view returns (uint256) {
         return IERC4626(vault).maxWithdraw(user);
     }
 }
