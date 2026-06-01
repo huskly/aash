@@ -92,7 +92,7 @@ Telegram bot commands:
 - `/status` prints current loans plus a portfolio summary (average health factor, Net APY, total collateral, total debt, portfolio borrow power used, repay coverage in USD and %). Each loan row also includes the current borrow rate percentage and utilization percentage when available. Morpho Blue market collateral is risk collateral only, so it does not add market supply APY to carry.
 - `/status` prints each loan with its human-readable market name; Morpho entries show labels like `morpho_cbBTC_USDC` instead of raw market IDs.
 - `/refresh` refreshes monitor state first, then prints the same enriched status output.
-- `/watchdog` prints watchdog mode, thresholds, and recent watchdog actions.
+- `/watchdog` prints watchdog mode, layer-1 thresholds, pre-rescue state, `preRescueTriggerHF`, configured rescue/vault-withdraw contracts, and recent watchdog actions.
 - `/help` prints all available commands.
 
 The server automatically syncs this command menu to Telegram on startup using `setMyCommands`, so Telegram's slash-command list stays aligned with the backend handlers.
@@ -118,6 +118,7 @@ For the open-ended top zone (`safe`), `maxHF` may be sent as `null` in JSON and 
 - **Critical zone** bypasses debounce — instant notification.
 - Loan-specific alerts, reminders, recoveries, all-clear messages, and watchdog notices include the current borrow rate percentage for that loan.
 - Watchdog dry-run/live notices and action logs include projected HF from the rescue contract preview; regular status and zone alerts only show current HF.
+- Pre-rescue dry-run/live notices show the current HF buffer band and the Morpho vault withdrawal amount when the watchdog plans to move debt-token liquidity from a vault into the monitored wallet.
 - Other zone transitions require **2 consecutive checks** (~10 min) before alerting.
 - **Recovery** sends a single message, then a 30-minute cooldown.
 - If stuck in a non-safe zone for 30+ minutes, a **reminder** is sent with a human-readable elapsed duration (e.g. `2h 40m ago`).

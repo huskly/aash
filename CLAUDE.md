@@ -32,6 +32,9 @@ Configured via `.env` in project root (prefixed with `VITE_` for Vite exposure):
 - `WATCHDOG_DEADLINE_SECONDS` — optional override for rescue transaction deadline in seconds
 - `WATCHDOG_RESCUE_CONTRACT` — optional override for Aave rescue contract address
 - `WATCHDOG_MORPHO_RESCUE_CONTRACT` — optional override for Morpho Blue rescue contract address
+- `WATCHDOG_PRE_TRIGGER_HF` — optional override for the layer-0 pre-rescue trigger HF
+- `WATCHDOG_VAULT_WITHDRAW_CONTRACT` — optional override for `MorphoVaultWithdrawV1`
+- `WATCHDOG_MAX_VAULT_WITHDRAW_AMOUNT` — optional override for max Morpho vault withdrawal per pre-rescue action
 - `TELEGRAM_BOT_TOKEN` — backend Telegram bot token (loaded from root `.env`)
 - `PORT` — optional backend port (default `3001`)
 
@@ -54,6 +57,7 @@ Backend server notes:
 - Fully paid-off / zero-value positions are filtered out of both dashboard data and Telegram status output.
 - Watchdog user-facing docs live in `docs/watchdog-user-manual.md`.
 - Watchdog uses an atomic on-chain rescue path: it computes the required debt-token repay amount off-chain and submits a single `rescue(...)` transaction to the configured rescue contract, which repays the loan's borrowed asset (e.g. USDC/USDT) from the monitored wallet.
+- Watchdog can optionally run layer-0 pre-rescue in the HF buffer band `[triggerHF, preRescueTriggerHF)`: `MorphoVaultWithdrawV1` withdraws matching debt-token liquidity from an approved Morpho ERC-4626 vault into the monitored wallet before layer-1 rescue is needed.
 - Watchdog is fully wired: monitor integration, `GET /api/watchdog/status` endpoint, `/watchdog` Telegram command, config via `GET/PUT /api/config`, and dashboard settings controls for watchdog fields.
 - `GET /api/config` and `PUT /api/config` round-trip both `watchdog` and `borrowRate` settings so dashboard/server alert config stays in sync.
 - Borrow-rate alerts fire when a loan's weighted borrow rate crosses the hardcoded `BORROW_RATE_ALERT_THRESHOLD` (4.5%). They replace the old market-utilization alert; only the alert was removed — telemetry, the dashboard "Utilization %" column, and the utilization curve chart all stay.
@@ -75,9 +79,15 @@ Backend server notes:
 - A single `MorphoAtomicRepayV1` contract is intended to support multiple Morpho markets for one monitored wallet / executor pair via `setSupportedMarket(...)`; the app config therefore keeps one `morphoRescueContract` address, not a per-market map.
 - Morpho rescue uses the market-specific loan token (resolved from `LoanPosition.morphoMarketParams.loanToken`) to repay debt.
 - Morpho rescue preview/guard math uses accrued borrow interest and Morpho's virtual-share conversion instead of raw stale market totals.
+- Pre-rescue requires a valid layer-1 rescue contract for HF preview, a valid `vaultWithdrawContract`, `preRescueTriggerHF > triggerHF`, and `maxVaultWithdrawAmount > 0`.
+- Pre-rescue chooses Morpho vault candidates by matching the vault underlying asset to the loan debt token, queries each vault's user-specific `maxWithdraw(monitoredWallet)`, and chooses the largest withdrawable vault.
+- Pre-rescue withdrawal amount is only the wallet shortfall needed to reach `targetHF`, capped by `maxVaultWithdrawAmount`, user-specific `maxWithdraw`, and layer-1 `maxRepayAmount`.
+- `MorphoVaultWithdrawV1` only lets the configured executor call `withdraw(...)`, only for `user == owner`, only for `supportedVault[vault]`, and sends ERC-4626 withdrawn assets directly to the owner/monitored wallet.
+- `DeployMorphoVaultWithdrawV1.s.sol` mirrors the Morpho repay deploy flow: it deploys with `INITIAL_OWNER` or `RESCUE_OWNER`, enables `MORPHO_VAULT` or comma-separated `MORPHO_VAULTS`, and transfers ownership to `RESCUE_OWNER` after setup.
 - Rescue contracts support a split-role model: `owner` is the monitored wallet that funds the repay and grants allowance, while `executor` is the hot wallet allowed to submit `rescue(...)`.
 - In live mode the server signs with `WATCHDOG_EXECUTOR_PRIVATE_KEY` (or legacy `WATCHDOG_PRIVATE_KEY` fallback); this executor key no longer needs to match the monitored wallet.
 - Debt-token approval must still be signed by the monitored wallet / contract owner, because the rescue contract calls `transferFrom(params.user, ...)`.
+- Pre-rescue vault share approval must be signed by the monitored wallet / vault withdraw contract owner, because `MorphoVaultWithdrawV1` calls `vault.withdraw(assets, owner, owner)`.
 - Watchdog repay caps are configured via `maxRepayAmount` (denominated in the debt token, e.g. 500 USDC).
 - `yarn morpho:market-env <market-url-or-unique-key>` resolves a Morpho market through the public GraphQL API, prints exact `MORPHO_*` exports, and verifies the params hash back to the market `uniqueKey`.
 - Additional Morpho markets are typically enabled from Etherscan `Write Contract` by calling `setSupportedMarket(...)` from the current owner wallet, which works well for MetaMask/Rabby + hardware-wallet signing flows.

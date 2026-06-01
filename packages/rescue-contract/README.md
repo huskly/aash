@@ -6,18 +6,23 @@ This package contains the v1 atomic rescue contracts for both Aave and Morpho Bl
 
 - `src/AaveAtomicRepayV1.sol` - owner-funded, executor-triggered atomic debt repay for Aave
 - `src/MorphoAtomicRepayV1.sol` - owner-funded, executor-triggered atomic debt repay for Morpho Blue
+- `src/MorphoVaultWithdrawV1.sol` - owner-approved, executor-triggered ERC-4626 vault withdrawal helper
 - `script/DeployAaveAtomicRepayV1.s.sol` - deploy script
 - `script/DeployMorphoAtomicRepayV1.s.sol` - Morpho deploy script that also enables the first market
+- `script/DeployMorphoVaultWithdrawV1.s.sol` - Morpho vault withdraw helper deploy script that also enables one or more vaults
 - `test/AaveAtomicRepayV1.t.sol` - unit tests with mocks
 - `test/MorphoAtomicRepayV1.t.sol` - Morpho unit tests with mocks
+- `test/MorphoVaultWithdrawV1.t.sol` - vault withdraw helper unit tests with mocks
 
 ## Commands
 
 ```bash
 forge build --root packages/rescue-contract
 forge test --root packages/rescue-contract
-forge script script/DeployAaveAtomicRepayV1.s.sol --root packages/rescue-contract --rpc-url $RPC_URL --broadcast
-forge script script/DeployMorphoAtomicRepayV1.s.sol --root packages/rescue-contract --rpc-url $RPC_URL --broadcast
+cd packages/rescue-contract
+forge script script/DeployAaveAtomicRepayV1.s.sol:DeployAaveAtomicRepayV1 --rpc-url $RPC_URL --broadcast
+forge script script/DeployMorphoAtomicRepayV1.s.sol:DeployMorphoAtomicRepayV1 --rpc-url $RPC_URL --broadcast
+forge script script/DeployMorphoVaultWithdrawV1.s.sol:DeployMorphoVaultWithdrawV1 --rpc-url $RPC_URL --broadcast
 yarn morpho:market-env app.morpho.org/ethereum/market/<market-id>/<slug>
 ```
 
@@ -63,3 +68,31 @@ Example:
 Use Etherscan `Write Contract` on the verified rescue contract and call
 `setSupportedMarket((address,address,address,address,uint256),bool)` from the current owner wallet.
 This works well with MetaMask or Rabby when the owner is backed by a hardware wallet.
+
+## Morpho Vault Withdraw Deploy Flow
+
+`DeployMorphoVaultWithdrawV1` follows the same ownership model as the Morpho repay deploy script.
+It uses:
+
+- `RESCUE_OWNER` as the final helper owner / monitored wallet
+- `INITIAL_OWNER` as an optional temporary setup owner
+- `RESCUE_EXECUTOR` as the wallet allowed to call `withdraw(...)`, defaulting to `INITIAL_OWNER`
+- `MORPHO_VAULT` for one vault, or `MORPHO_VAULTS` for a comma-separated list of vaults to enable
+
+The script deploys `MorphoVaultWithdrawV1`, calls `setSupportedVault(..., true)` for every
+configured vault, and transfers ownership to `RESCUE_OWNER` when `INITIAL_OWNER` is used.
+
+Example:
+
+```bash
+export INITIAL_OWNER=0xYourHotWallet
+export RESCUE_OWNER=0xYourHardwareWallet
+export RESCUE_EXECUTOR=0xYourHotWallet
+export MORPHO_VAULTS=0xVaultA,0xVaultB
+
+forge script script/DeployMorphoVaultWithdrawV1.s.sol:DeployMorphoVaultWithdrawV1 \
+  --rpc-url $RPC_URL \
+  --sig "run()" \
+  --broadcast \
+  --private-key $DEPLOYER_PRIVATE_KEY
+```

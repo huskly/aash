@@ -20,7 +20,8 @@
     "morpho:market-env": "yarn workspace @aave-monitor/server morpho:market-env",
     "test": "yarn workspace @aave-monitor/server test",
     "test:contracts": "forge test --root packages/rescue-contract",
-    "deploy:rescue:dry-run": "forge script script/DeployAaveAtomicRepayV1.s.sol --root packages/rescue-contract"
+    "deploy:rescue:dry-run": "cd packages/rescue-contract && forge script script/DeployAaveAtomicRepayV1.s.sol:DeployAaveAtomicRepayV1",
+    "deploy:vault-withdraw:dry-run": "cd packages/rescue-contract && forge script script/DeployMorphoVaultWithdrawV1.s.sol:DeployMorphoVaultWithdrawV1"
   },
   "dependencies": {
     "@aave-monitor/core": "*",

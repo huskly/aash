@@ -215,7 +215,7 @@ Quick start:
 Detailed user manual: **[docs/watchdog-user-manual.md](docs/watchdog-user-manual.md)**.  
 Deployment/ops runbook: **[docs/rescue-v1-ops.md](docs/rescue-v1-ops.md)**.
 
-The watchdog monitors loan health and can execute an atomic on-chain rescue when HF drops below threshold. It computes a debt repay amount and submits a single `rescue(...)` transaction to the rescue contract, which repays the loan's borrowed stablecoin (e.g. USDC/USDT) from the wallet.
+The watchdog monitors loan health and can execute an atomic on-chain rescue when HF drops below threshold. It computes a debt repay amount and submits a single `rescue(...)` transaction to the rescue contract, which repays the loan's borrowed stablecoin (e.g. USDC/USDT) from the wallet. It can also run an optional layer-0 pre-rescue step that withdraws debt-token liquidity from a configured Morpho ERC-4626 vault into the monitored wallet before the layer-1 rescue threshold is crossed.
 
 - Runs after each monitor poll, evaluating all loans
 - Monitor polling runs when at least one wallet is enabled (Telegram can stay disabled)
@@ -224,10 +224,11 @@ The watchdog monitors loan health and can execute an atomic on-chain rescue when
 - Live mode requires allowance for the debt token (e.g. USDC) to be pulled by the rescue contract
 - For Morpho Blue deploys, generate exact `MORPHO_*` market env vars from a market URL or unique key with `yarn morpho:market-env <market-url-or-unique-key>` to avoid loan/collateral/oracle/IRM mismatches.
 - A single Morpho rescue contract can support multiple Morpho markets for the same monitored wallet/executor pair. Enable each supported market on-chain with `setSupportedMarket(...)`, typically from Etherscan Write Contract signed by the owner wallet.
+- Optional pre-rescue uses `MorphoVaultWithdrawV1`: enable each supported Morpho vault with `setSupportedVault(...)`, approve vault shares from the monitored wallet to `vaultWithdrawContract`, and configure `preRescueTriggerHF > triggerHF`.
 - API: `GET /api/watchdog/status` for status and recent action log
 - Telegram: `/watchdog` command for status and recent actions
 - Config: watchdog and utilization sections in `GET/PUT /api/config`
-- Dashboard UI: bell settings panel includes rescue contracts, HF thresholds, rescue-asset cap, deadline, gas cap
+- Dashboard UI: bell settings panel includes rescue contracts, HF thresholds, rescue-asset cap, deadline, gas cap, and pre-rescue vault withdrawal settings
 
 ## How It Works
 

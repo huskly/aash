@@ -9,3 +9,4 @@ packages/rescue-contract/cache/
 packages/rescue-contract/out/
 packages/rescue-contract/broadcast/
 .codex
+packages/rescue-contract/deploy-morpho-repay.sh

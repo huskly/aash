@@ -1,15 +1,17 @@
 # Watchdog User Manual (Atomic Rescue v1)
 
-This guide explains the current watchdog behavior using the on-chain debt repay rescue path.
+This guide explains the current watchdog behavior using the on-chain debt repay rescue path,
+including the optional layer-0 pre-rescue Morpho vault withdrawal.
 
 ## Current Behavior
 
 The watchdog acts as a planner/submission bot:
 
 1. Reads loan health factor (HF).
-2. If HF is below `triggerHF`, computes required debt repay amount.
-3. Calls the on-chain rescue contract in one transaction.
-4. Contract atomically repays debt using stablecoins (e.g. USDC/USDT) from the wallet and enforces post-HF safety.
+2. If pre-rescue is enabled and HF is in `[triggerHF, preRescueTriggerHF)`, it can withdraw the debt token from a matching Morpho ERC-4626 vault into the monitored wallet.
+3. If HF is below `triggerHF`, computes required debt repay amount.
+4. Calls the on-chain rescue contract in one transaction.
+5. Contract atomically repays debt using stablecoins (e.g. USDC/USDT) from the wallet and enforces post-HF safety.
 
 The repay token is determined from the loan's borrowed asset (e.g. USDC for an Aave USDC borrow, or the `loanToken` for a Morpho market).
 
@@ -34,6 +36,10 @@ Watchdog config fields:
 - `rescueContract` (required for Aave rescue when `enabled=true`)
 - `morphoRescueContract` (required for Morpho rescue when `enabled=true`)
 - `maxGasGwei` (default `50`)
+- `preRescueEnabled` (default `false`)
+- `preRescueTriggerHF` (default `1.7`)
+- `vaultWithdrawContract` (required when `preRescueEnabled=true`)
+- `maxVaultWithdrawAmount` (default `500`) — denominated in the debt token
 
 Note:
 
@@ -48,6 +54,10 @@ Validation rules:
 - `rescueContract` must be a valid address when set
 - `morphoRescueContract` must be a valid address when set
 - At least one of `rescueContract` or `morphoRescueContract` must be configured when watchdog is enabled
+- `preRescueTriggerHF > triggerHF` when pre-rescue is enabled
+- `vaultWithdrawContract` must be a valid address when set
+- `preRescueEnabled=true` requires a valid `vaultWithdrawContract`
+- `maxVaultWithdrawAmount > 0`
 
 Environment overrides:
 
@@ -55,7 +65,12 @@ Environment overrides:
 - `WATCHDOG_TARGET_HF`
 - `WATCHDOG_MIN_RESULTING_HF`
 - `WATCHDOG_MAX_REPAY_AMOUNT`
+- `WATCHDOG_DEADLINE_SECONDS`
+- `WATCHDOG_RESCUE_CONTRACT`
 - `WATCHDOG_MORPHO_RESCUE_CONTRACT`
+- `WATCHDOG_PRE_TRIGGER_HF`
+- `WATCHDOG_VAULT_WITHDRAW_CONTRACT`
+- `WATCHDOG_MAX_VAULT_WITHDRAW_AMOUNT`
 
 ## On-Chain Requirements
 
@@ -84,6 +99,18 @@ Operational note:
 - One `MorphoAtomicRepayV1` contract can support multiple Morpho markets for the same monitored wallet / executor pair.
 - Enable additional markets on the existing contract with `setSupportedMarket(...)`, typically from Etherscan `Write Contract` signed by the owner wallet.
 
+### Layer-0 pre-rescue vault withdrawal
+
+Live mode additionally requires:
+
+- `preRescueEnabled=true`
+- `vaultWithdrawContract` configured with a `MorphoVaultWithdrawV1` deployment
+- executor address is authorized by the vault withdraw contract
+- monitored wallet is the vault withdraw contract `owner()`
+- the Morpho ERC-4626 vault is enabled with `setSupportedVault(vault, true)`
+- monitored wallet has approved the vault share token to `vaultWithdrawContract`
+- the matching vault reports a positive `maxWithdraw(monitoredWallet)`
+
 ## Dry Run vs Live
 
 Dry run:
@@ -95,13 +122,14 @@ Dry run:
 Live:
 
 - Enforces gas and ETH checks.
-- Submits exactly one `rescue(...)` tx.
+- For layer 0, submits exactly one `withdraw(...)` tx to `MorphoVaultWithdrawV1`.
+- For layer 1, submits exactly one `rescue(...)` tx.
 - Logs tx hash and applies cooldown.
 
 ## API and Telegram
 
 - `GET /api/watchdog/status`: returns summary + recent action log
-- Status summary fields include `aaveRescueContract` and `morphoRescueContract`
+- Status summary fields include `aaveRescueContract`, `morphoRescueContract`, `preRescueEnabled`, `preRescueTriggerHF`, and `vaultWithdrawContract`
 - Recent action entries include `protocol`, `repayAmount`, `repayAssetSymbol`, and `projectedHF`
 - `GET /api/config`: includes watchdog and utilization sections
 - `PUT /api/config`: updates watchdog and utilization alert fields
@@ -110,8 +138,10 @@ Live:
 ## Typical Failure Reasons
 
 - Missing/invalid `rescueContract` or `morphoRescueContract`
+- Missing/invalid `vaultWithdrawContract` when pre-rescue is enabled
 - Cooldown active
 - No usable debt token (balance/allowance/max cap)
+- No matching Morpho vault with a positive user-specific `maxWithdraw`
 - Projected HF cannot reach `minResultingHF`
 - Gas above `maxGasGwei`
 - Insufficient ETH for gas
@@ -122,6 +152,7 @@ Live:
 - Start with `dryRun=true`.
 - Configure `rescueContract` (Aave) and/or `morphoRescueContract` (Morpho) and verify addresses.
 - Pre-approve debt/loan tokens from monitored wallet to rescue contract(s).
+- If using pre-rescue, configure `vaultWithdrawContract`, enable the supported vault, and approve vault shares from the monitored wallet to the vault withdraw contract.
 - Keep `maxRepayAmount` small during rollout.
 - Monitor Telegram alerts and `/api/watchdog/status` for recent repay activity.
 
@@ -136,15 +167,16 @@ vault into the wallet _before_ HF reaches the layer-1 trigger.
 ### How it works
 
 - Layer 0 fires only when HF is in the buffer band `[triggerHF, preRescueTriggerHF)`.
-- It computes the debt repay amount that would be needed to reach `targetHF` (capped
-  at `maxVaultWithdrawAmount`), checks the wallet for existing balance, and only
-  withdraws the shortfall.
+- It computes the debt repay amount that would be needed to reach `targetHF` using the relevant Aave or Morpho rescue contract preview.
+- The capacity search is capped at `min(wallet debt-token balance + usable vault withdrawal, maxRepayAmount)`.
+- The usable vault amount is capped by both `maxVaultWithdrawAmount` and the vault's user-specific `maxWithdraw(monitoredWallet)`.
+- It checks the wallet for existing balance and withdraws only the shortfall.
 - The vault is selected automatically by matching the loan's debt-token address;
-  if multiple vaults match, the one with the largest balance wins.
+  if multiple vaults match, the one with the largest on-chain `maxWithdraw(monitoredWallet)` wins.
 - Withdrawn assets are sent directly to the monitored wallet via the ERC-4626
   `withdraw(assets, owner, owner)` call. The helper contract never custodies
   funds.
-- A separate cooldown key (`-prerescue`) prevents repeated withdrawals.
+- A separate cooldown key (`-prerescue`) prevents repeated withdrawals; failed live transactions also apply the cooldown.
 - If HF recovers above `preRescueTriggerHF`, the withdrawn funds simply stay in
   the wallet; the operator can redeposit them manually.
 - If HF crosses `triggerHF`, the existing layer-1 rescue runs in the next poll
@@ -176,6 +208,8 @@ Environment overrides:
   ERC-4626 itself): `vault.approve(vaultWithdrawContract, type(uint256).max)`.
 - The executor key may differ from the monitored wallet (same model as the
   existing rescue contracts).
+- `withdraw(...)` rejects a `user` that is not the helper `owner()`, unsupported
+  vaults, zero amounts, expired deadlines, and calls from non-executors.
 
 ### Log entries
 

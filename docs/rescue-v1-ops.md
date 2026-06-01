@@ -6,6 +6,7 @@ v1 currently supports:
 
 - Ethereum mainnet Aave v3 via `AaveAtomicRepayV1`
 - Ethereum mainnet Morpho Blue via `MorphoAtomicRepayV1`
+- Optional layer-0 Morpho ERC-4626 vault withdrawal via `MorphoVaultWithdrawV1`
 - owner-funded, executor-triggered contract execution
 
 ## Build And Test
@@ -281,6 +282,141 @@ market tuples with `setSupportedMarket(...)`.
 - Wallet holds the loan token (e.g. USDC) and has allowance to the Morpho rescue contract.
 - Rescue contract has the exact Morpho market enabled via `setSupportedMarket`.
 
+## Deploy Pre-Rescue Morpho Vault Withdrawal
+
+`MorphoVaultWithdrawV1` is separate from the layer-1 Morpho repay contract. It only
+orchestrates ERC-4626 withdrawals from owner-approved vault shares into the monitored wallet.
+It does not custody funds and does not repay debt directly.
+
+Set env vars for the pre-rescue deploy script:
+
+```bash
+export RESCUE_OWNER=0x...                # Final owner (monitored wallet address)
+export RESCUE_EXECUTOR=0x...             # Hot wallet allowed to submit withdraw txs
+export MORPHO_VAULT=0x...                # ERC-4626 vault to enable at deploy time
+export RPC_URL=https://rpc.mevblocker.io # or https://eth.llamarpc.com
+```
+
+To enable multiple vaults in the same deploy, use a comma-separated `MORPHO_VAULTS` list instead
+of `MORPHO_VAULT`:
+
+```bash
+export MORPHO_VAULTS=0xVaultA,0xVaultB,0xVaultC
+```
+
+Dry-run (simulation only, no broadcast). `--sender` must match `INITIAL_OWNER` (or `RESCUE_OWNER`
+when `INITIAL_OWNER` is unset) so the `setSupportedVault` call succeeds in simulation:
+
+```bash
+forge script script/DeployMorphoVaultWithdrawV1.s.sol:DeployMorphoVaultWithdrawV1 \
+  --rpc-url $RPC_URL \
+  --sig "run()" \
+  --sender ${INITIAL_OWNER:-$RESCUE_OWNER}
+```
+
+Broadcast (live deploy):
+
+```bash
+forge script script/DeployMorphoVaultWithdrawV1.s.sol:DeployMorphoVaultWithdrawV1 \
+  --rpc-url $RPC_URL \
+  --sig "run()" \
+  --broadcast \
+  --private-key $DEPLOYER_PRIVATE_KEY
+```
+
+If `RESCUE_OWNER` is a hardware wallet, set a temporary deployer as `INITIAL_OWNER`. The script
+will deploy from the hot wallet, set `RESCUE_EXECUTOR`, enable every vault from `MORPHO_VAULT`
+or `MORPHO_VAULTS`, and then transfer ownership to `RESCUE_OWNER` in the same run:
+
+```bash
+export INITIAL_OWNER=0xYourHotWallet
+export RESCUE_OWNER=0xYourHardwareWallet
+export RESCUE_EXECUTOR=0xYourHotWallet
+export MORPHO_VAULT=0xYourMorphoVault
+
+forge script script/DeployMorphoVaultWithdrawV1.s.sol:DeployMorphoVaultWithdrawV1 \
+  --rpc-url $RPC_URL \
+  --sig "run()" \
+  --broadcast \
+  --private-key $DEPLOYER_PRIVATE_KEY
+```
+
+Verify the source on Etherscan:
+
+```bash
+forge verify-contract --chain mainnet \
+  --watch \
+  --guess-constructor-args \
+  --rpc-url $RPC_URL \
+  --etherscan-api-key $ETHERSCAN_API_KEY \
+  <vault-withdraw-contract> \
+  src/MorphoVaultWithdrawV1.sol:MorphoVaultWithdrawV1
+```
+
+## Post-Deploy Pre-Rescue
+
+1. Save deployed `MorphoVaultWithdrawV1` address.
+
+2. Set watchdog pre-rescue config in `PUT /api/config`:
+
+   ```bash
+   curl -X PUT https://<your-host>/api/config \
+     -H 'Content-Type: application/json' \
+     -d '{"watchdog": {"preRescueEnabled": true, "preRescueTriggerHF": 1.7, "vaultWithdrawContract": "<vault-withdraw-contract>", "maxVaultWithdrawAmount": 500}}'
+   ```
+
+   `preRescueTriggerHF` must be greater than `triggerHF`. Layer 0 runs only in the buffer band
+   `[triggerHF, preRescueTriggerHF)`.
+
+3. Confirm each ERC-4626 vault that can be used as a source of debt-token liquidity was enabled.
+   The deploy script already enables `MORPHO_VAULT` or every address in `MORPHO_VAULTS`. To add
+   another vault later:
+
+   ```bash
+   cast send <vault-withdraw-contract> \
+     "setSupportedVault(address,bool)" \
+     <morpho-vault-address> true \
+     --rpc-url $RPC_URL
+     # sign this with the owner wallet, or with the temporary owner before ownership transfer
+   ```
+
+4. Approve the vault share token from the monitored wallet to the vault withdraw contract. The
+   vault address is also the ERC-20 share token address for ERC-4626 vaults:
+
+   ```bash
+   cast send <morpho-vault-address> \
+     "approve(address,uint256)" \
+     <vault-withdraw-contract> \
+     $(cast max-uint) \
+     --rpc-url $RPC_URL
+     # sign this with the monitored wallet in your wallet UI / hardware wallet
+   ```
+
+5. Keep watchdog in dry-run first and confirm `/api/watchdog/status` logs
+   `vault-withdraw-dry-run` entries when HF enters the pre-rescue buffer band.
+6. Switch watchdog to live mode after the layer-0 dry run and layer-1 rescue dry run both look correct.
+
+## Runtime Preconditions (Pre-Rescue)
+
+- Watchdog is enabled and `preRescueEnabled=true`.
+- `vaultWithdrawContract` points to `MorphoVaultWithdrawV1`.
+- Monitored wallet is the vault withdraw contract `owner()`.
+- Executor wallet is the vault withdraw contract `executor()`.
+- The candidate Morpho vault is enabled with `setSupportedVault`.
+- The monitored wallet has approved vault shares to `vaultWithdrawContract`.
+- The vault's underlying asset matches the loan debt token.
+- The vault reports positive `maxWithdraw(monitoredWallet)`.
+- A valid Aave or Morpho layer-1 rescue contract is configured so the watchdog can preview the HF impact before withdrawing.
+
+Operational notes:
+
+- The watchdog chooses candidate vaults by debt-token address and selects the vault with the largest user-specific `maxWithdraw`.
+- The withdrawal amount is the shortfall between wallet balance and the debt-token amount needed to reach `targetHF`.
+- Withdrawal is capped by `maxVaultWithdrawAmount`, user-specific `maxWithdraw`, and the layer-1 `maxRepayAmount`.
+- Pre-rescue only moves funds into the monitored wallet. If HF later crosses `triggerHF`, the existing layer-1 rescue consumes that wallet balance on a later poll.
+- If HF recovers above `preRescueTriggerHF`, the withdrawn funds remain in the wallet until manually redeposited.
+- The pre-rescue cooldown uses a separate `-prerescue` key; failed live pre-rescue transactions also apply cooldown.
+
 ## Common Incident Checks
 
 - `Invalid or missing rescueContract in watchdog config`
@@ -289,10 +425,12 @@ market tuples with `setSupportedMarket(...)`.
 - `Invalid or missing morphoRescueContract in watchdog config`
 - `No available <debt-symbol> (balance/allowance/maxRepay all exhausted)`
 - `Insufficient <debt-symbol> to achieve minimum resulting HF`
+- `Invalid or missing vaultWithdrawContract in watchdog config`
+- `Pre-rescue: no Morpho vault with withdrawable <debt-symbol> found`
+- `Pre-rescue: wallet already holds ...`
+- `Pre-rescue: ... (wallet + vault, capped) not enough to reach target HF`
+- `Pre-rescue tx failed`
 - `MarketNotSupported`
+- `VaultNotSupported`
 - `Gas price ... exceeds max ...`
 - `NotExecutor`
-
-```
-
-```
