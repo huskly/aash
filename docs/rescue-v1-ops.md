@@ -391,8 +391,11 @@ forge verify-contract --chain mainnet \
      # sign this with the owner wallet, or with the temporary owner before ownership transfer
    ```
 
-4. Approve the vault share token from the monitored wallet to the vault withdraw contract. The
-   vault address is also the ERC-20 share token address for ERC-4626 vaults:
+4. Approve the vault share token from the monitored wallet to the vault withdraw contract. This is
+   required even when the monitored wallet already has funds in the vault. The approval must be
+   signed by the monitored wallet / vault owner, not by the executor wallet.
+
+   The vault address is also the ERC-20 share token address for ERC-4626 vaults:
 
    ```bash
    cast send <morpho-vault-address> \
@@ -402,6 +405,30 @@ forge verify-contract --chain mainnet \
      --rpc-url $RPC_URL
      # sign this with the monitored wallet in your wallet UI / hardware wallet
    ```
+
+   For the current Gauntlet USDC Prime setup:
+   - vault/share token: `0x8c106EEDAd96553e64287A5A6839c3Cc78afA3D0`
+   - vault withdraw contract/spender: `<vault-withdraw-contract>`
+   - production helper currently configured as `0xd001e5218d89737fe064b3cc7fb507f2981d8aa1`
+
+   In Etherscan, open the vault contract's **Write Contract** tab, connect the monitored wallet,
+   and call `approve(spender, amount)` with:
+   - `spender`: the `MorphoVaultWithdrawV1` address
+   - `amount`: `type(uint256).max`
+     (`115792089237316195423570985008687907853269984665640564039457584007913129639935`)
+
+   Verify the allowance before live mode:
+
+   ```bash
+   cast call <morpho-vault-address> \
+     "allowance(address,address)(uint256)" \
+     <monitored-wallet> \
+     <vault-withdraw-contract> \
+     --rpc-url $RPC_URL
+   ```
+
+   The result must be non-zero and large enough for the planned withdrawal. If it is `0`, the
+   watchdog will skip live pre-rescue with an insufficient share allowance log entry.
 
 5. Keep watchdog in dry-run first and confirm `/api/watchdog/status` logs
    `vault-withdraw-dry-run` entries when HF enters the pre-rescue buffer band.
@@ -416,14 +443,16 @@ forge verify-contract --chain mainnet \
 - The candidate Morpho vault is enabled with `setSupportedVault`.
 - The monitored wallet has approved vault shares to `vaultWithdrawContract`.
 - The vault's underlying asset matches the loan debt token.
-- The vault reports positive `maxWithdraw(monitoredWallet)`.
+- The vault has usable owner-specific withdrawal capacity. Standard ERC-4626 vaults use
+  `maxWithdraw(monitoredWallet)`; Morpho Vault V2 vaults can report zero from max functions and
+  still be usable through the wallet's share asset value.
 - A valid Aave or Morpho layer-1 rescue contract is configured so the watchdog can preview the HF impact before withdrawing.
 
 Operational notes:
 
-- The watchdog chooses candidate vaults by debt-token address and selects the vault with the largest user-specific `maxWithdraw`.
+- The watchdog chooses candidate vaults by debt-token address and selects the vault with the largest usable owner-specific capacity.
 - The withdrawal amount is the shortfall between wallet balance and the debt-token amount needed to reach `targetHF`.
-- Withdrawal is capped by `maxVaultWithdrawAmount`, user-specific `maxWithdraw`, and the layer-1 `maxRepayAmount`.
+- Withdrawal is capped by `maxVaultWithdrawAmount`, owner-specific usable capacity, and the layer-1 `maxRepayAmount`.
 - Pre-rescue only moves funds into the monitored wallet. If HF later crosses `triggerHF`, the existing layer-1 rescue consumes that wallet balance on a later poll.
 - If HF recovers above `preRescueTriggerHF`, the withdrawn funds remain in the wallet until manually redeposited.
 - The pre-rescue cooldown uses a separate `-prerescue` key; failed live pre-rescue transactions also apply cooldown.
