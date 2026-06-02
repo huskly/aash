@@ -10,6 +10,7 @@ This package contains the v1 atomic rescue contracts for both Aave and Morpho Bl
 - `script/DeployAaveAtomicRepayV1.s.sol` - deploy script
 - `script/DeployMorphoAtomicRepayV1.s.sol` - Morpho deploy script that also enables the first market
 - `script/DeployMorphoVaultWithdrawV1.s.sol` - Morpho vault withdraw helper deploy script that also enables one or more vaults
+- `deploy-morpho-vault-withdraw.sh` - operator wrapper around the vault withdraw helper deploy script
 - `test/AaveAtomicRepayV1.t.sol` - unit tests with mocks
 - `test/MorphoAtomicRepayV1.t.sol` - Morpho unit tests with mocks
 - `test/MorphoVaultWithdrawV1.t.sol` - vault withdraw helper unit tests with mocks
@@ -23,6 +24,7 @@ cd packages/rescue-contract
 forge script script/DeployAaveAtomicRepayV1.s.sol:DeployAaveAtomicRepayV1 --rpc-url $RPC_URL --broadcast
 forge script script/DeployMorphoAtomicRepayV1.s.sol:DeployMorphoAtomicRepayV1 --rpc-url $RPC_URL --broadcast
 forge script script/DeployMorphoVaultWithdrawV1.s.sol:DeployMorphoVaultWithdrawV1 --rpc-url $RPC_URL --broadcast
+./deploy-morpho-vault-withdraw.sh --dry-run
 yarn morpho:market-env app.morpho.org/ethereum/market/<market-id>/<slug>
 ```
 
@@ -52,6 +54,17 @@ forge script script/DeployMorphoAtomicRepayV1.s.sol:DeployMorphoAtomicRepayV1 \
   --sig "run()" \
   --broadcast \
   --private-key $DEPLOYER_PRIVATE_KEY
+```
+
+For the default operator wallet/RPC settings used by `deploy-morpho-repay.sh`, use the wrapper.
+With no vault argument it enables Gauntlet USDC Prime
+(`0x8c106EEDAd96553e64287A5A6839c3Cc78afA3D0`). Pass a vault address or comma-separated vault list
+to override that default:
+
+```bash
+./deploy-morpho-vault-withdraw.sh --dry-run
+./deploy-morpho-vault-withdraw.sh 0xVaultA,0xVaultB --dry-run
+./deploy-morpho-vault-withdraw.sh 0xVaultA,0xVaultB --no-dry-run
 ```
 
 If `INITIAL_OWNER` is unset, the script deploys directly with `RESCUE_OWNER` as owner.

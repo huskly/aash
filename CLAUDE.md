@@ -84,6 +84,7 @@ Backend server notes:
 - Pre-rescue withdrawal amount is only the wallet shortfall needed to reach `targetHF`, capped by `maxVaultWithdrawAmount`, user-specific `maxWithdraw`, and layer-1 `maxRepayAmount`.
 - `MorphoVaultWithdrawV1` only lets the configured executor call `withdraw(...)`, only for `user == owner`, only for `supportedVault[vault]`, and sends ERC-4626 withdrawn assets directly to the owner/monitored wallet.
 - `DeployMorphoVaultWithdrawV1.s.sol` mirrors the Morpho repay deploy flow: it deploys with `INITIAL_OWNER` or `RESCUE_OWNER`, enables `MORPHO_VAULT` or comma-separated `MORPHO_VAULTS`, and transfers ownership to `RESCUE_OWNER` after setup.
+- `packages/rescue-contract/deploy-morpho-vault-withdraw.sh` is the operator wrapper for that deploy script and uses the same default owner/executor/RPC/deployer-account conventions as `deploy-morpho-repay.sh`; with no vault argument it defaults to Gauntlet USDC Prime (`0x8c106EEDAd96553e64287A5A6839c3Cc78afA3D0`).
 - Rescue contracts support a split-role model: `owner` is the monitored wallet that funds the repay and grants allowance, while `executor` is the hot wallet allowed to submit `rescue(...)`.
 - In live mode the server signs with `WATCHDOG_EXECUTOR_PRIVATE_KEY` (or legacy `WATCHDOG_PRIVATE_KEY` fallback); this executor key no longer needs to match the monitored wallet.
 - Debt-token approval must still be signed by the monitored wallet / contract owner, because the rescue contract calls `transferFrom(params.user, ...)`.

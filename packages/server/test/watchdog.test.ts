@@ -16,10 +16,20 @@ type WatchdogReceipt = { status: number; hash: string };
 type WaitableTransaction = {
   wait: () => Promise<WatchdogReceipt>;
 };
+type TestVaultWithdrawCapacity = {
+  vault: MorphoVaultPosition;
+  capacityRaw: bigint;
+  maxWithdrawRaw: bigint;
+  maxRedeemRaw: bigint;
+  shareBalanceRaw: bigint;
+  shareAssetValueRaw: bigint;
+  source: 'maxWithdraw' | 'maxRedeem' | 'shareBalanceFallback' | 'none';
+};
 type WatchdogInternals = {
   getTokenBalance: (...args: unknown[]) => Promise<bigint>;
   getTokenAllowance: (...args: unknown[]) => Promise<bigint>;
-  getVaultMaxWithdraw: (...args: unknown[]) => Promise<bigint>;
+  getVaultWithdrawCapacity: (...args: unknown[]) => Promise<TestVaultWithdrawCapacity>;
+  getVaultPreviewWithdraw: (...args: unknown[]) => Promise<bigint>;
   findRequiredAmountRawGeneric: (...args: unknown[]) => Promise<bigint | null>;
   previewResultingHf: (...args: unknown[]) => Promise<bigint>;
   previewResultingHfMorpho: (...args: unknown[]) => Promise<bigint>;
@@ -388,7 +398,17 @@ function stubPreRescueEvaluation(
   const internals = getWatchdogInternals(watchdog);
   Object.assign(internals, {
     getTokenBalance: async () => 0n, // empty wallet
-    getVaultMaxWithdraw: async () => 1_000_000_000n, // 1000 USDC withdrawable
+    getTokenAllowance: async () => 1_000_000_000_000_000_000n,
+    getVaultWithdrawCapacity: async (...args: unknown[]) => ({
+      vault: args[1] as MorphoVaultPosition,
+      capacityRaw: 1_000_000_000n, // 1000 USDC withdrawable
+      maxWithdrawRaw: 1_000_000_000n,
+      maxRedeemRaw: 0n,
+      shareBalanceRaw: 0n,
+      shareAssetValueRaw: 0n,
+      source: 'maxWithdraw',
+    }),
+    getVaultPreviewWithdraw: async () => 200_000_000_000_000_000n,
     findRequiredAmountRawGeneric: async () => 200_000_000n, // need 200 USDC (6 decimals)
     previewResultingHf: async () => 1_900_000_000_000_000_000n,
     getGasPriceGwei: async () => 10,
@@ -510,7 +530,101 @@ test('pre-rescue: skips when no matching vault', async () => {
 
   const log = watchdog.getLog();
   assert.equal(log[0]?.action, 'skipped');
-  assert.match(log[0]?.reason ?? '', /no Morpho vault with withdrawable/);
+  assert.match(log[0]?.reason ?? '', /no Morpho vault position matched/);
+  assert.equal(log[0]?.diagnostics?.['receivedVaultCount'], 0);
+  assert.equal(log[0]?.diagnostics?.['matchingVaultCount'], 0);
+});
+
+test('pre-rescue: logs matched vault diagnostics when maxWithdraw is zero', async () => {
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+    }),
+  );
+  stubPreRescueEvaluation(watchdog, {
+    getTokenBalance: async () => 143_000n,
+    getVaultWithdrawCapacity: async (...args: unknown[]) => ({
+      vault: args[1] as MorphoVaultPosition,
+      capacityRaw: 0n,
+      maxWithdrawRaw: 0n,
+      maxRedeemRaw: 0n,
+      shareBalanceRaw: 1_000_000_000_000_000_000n,
+      shareAssetValueRaw: 1_000_000_000n,
+      source: 'none',
+    }),
+  });
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault()]);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'skipped');
+  assert.match(log[0]?.reason ?? '', /matching Morpho vaults report 0 usable/);
+  assert.equal(log[0]?.diagnostics?.['matchingVaultCount'], 1);
+  assert.equal(log[0]?.diagnostics?.['walletBalance'], 0.143);
+  const vaults = log[0]?.diagnostics?.['vaults'] as Array<Record<string, unknown>>;
+  assert.equal(vaults[0]?.['vaultAddress'], VAULT_ADDRESS);
+  assert.equal(vaults[0]?.['vaultName'], 'Gauntlet USDC Prime');
+  assert.equal(vaults[0]?.['withdrawCapacity'], 0);
+  assert.equal(vaults[0]?.['erc4626MaxWithdraw'], 0);
+});
+
+test('pre-rescue: uses share asset value fallback when vault max functions are zero', async () => {
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+      maxVaultWithdrawAmount: 500,
+    }),
+  );
+  stubPreRescueEvaluation(watchdog, {
+    getVaultWithdrawCapacity: async (...args: unknown[]) => ({
+      vault: args[1] as MorphoVaultPosition,
+      capacityRaw: 1_000_000_000n,
+      maxWithdrawRaw: 0n,
+      maxRedeemRaw: 0n,
+      shareBalanceRaw: 1_000_000_000_000_000_000n,
+      shareAssetValueRaw: 1_000_000_000n,
+      source: 'shareBalanceFallback',
+    }),
+  });
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault()]);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'vault-withdraw');
+  assert.equal(log[0]?.repayAmount, 200);
+  assert.equal(log[0]?.diagnostics?.['selectedVaultCapacity'], 1000);
+  assert.equal(log[0]?.diagnostics?.['selectedVaultCapacitySource'], 'shareBalanceFallback');
+});
+
+test('pre-rescue: live mode skips when vault share allowance is insufficient', async () => {
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+    }),
+  );
+  let submitted = false;
+  stubPreRescueEvaluation(watchdog, {
+    getTokenAllowance: async () => 0n,
+    getVaultPreviewWithdraw: async () => 200_000_000_000_000_000n,
+    submitVaultWithdrawTransaction: async () => {
+      submitted = true;
+      return '0xvaulttx';
+    },
+  });
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault()]);
+
+  assert.equal(submitted, false);
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'skipped');
+  assert.match(log[0]?.reason ?? '', /insufficient gtUSDC share allowance/);
+  assert.equal(log[0]?.diagnostics?.['shareAllowance'], '0');
 });
 
 test('pre-rescue: capacity calc uses wallet + vault (does not under-skip)', async () => {
@@ -531,7 +645,15 @@ test('pre-rescue: capacity calc uses wallet + vault (does not under-skip)', asyn
   let boundSeen: bigint | null = null;
   stubPreRescueEvaluation(watchdog, {
     getTokenBalance: async () => 400_000_000n, // 400 USDC in wallet
-    getVaultMaxWithdraw: async () => 10_000_000_000n, // plenty in vault
+    getVaultWithdrawCapacity: async (...args: unknown[]) => ({
+      vault: args[1] as MorphoVaultPosition,
+      capacityRaw: 10_000_000_000n, // plenty in vault
+      maxWithdrawRaw: 10_000_000_000n,
+      maxRedeemRaw: 0n,
+      shareBalanceRaw: 0n,
+      shareAssetValueRaw: 0n,
+      source: 'maxWithdraw',
+    }),
     findRequiredAmountRawGeneric: async (...args: unknown[]) => {
       boundSeen = args[2] as bigint;
       return 500_000_000n; // need 500 total
@@ -559,7 +681,15 @@ test('pre-rescue: caps withdrawal at ERC-4626 maxWithdraw', async () => {
   );
   let capturedAmount: bigint | null = null;
   stubPreRescueEvaluation(watchdog, {
-    getVaultMaxWithdraw: async () => 75_000_000n, // 75 USDC withdrawable
+    getVaultWithdrawCapacity: async (...args: unknown[]) => ({
+      vault: args[1] as MorphoVaultPosition,
+      capacityRaw: 75_000_000n, // 75 USDC withdrawable
+      maxWithdrawRaw: 75_000_000n,
+      maxRedeemRaw: 0n,
+      shareBalanceRaw: 0n,
+      shareAssetValueRaw: 0n,
+      source: 'maxWithdraw',
+    }),
     findRequiredAmountRawGeneric: async () => 75_000_000n, // capped at capacity=75
     submitVaultWithdrawTransaction: async (...args: unknown[]) => {
       capturedAmount = args[3] as bigint;

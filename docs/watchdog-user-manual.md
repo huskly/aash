@@ -109,7 +109,10 @@ Live mode additionally requires:
 - monitored wallet is the vault withdraw contract `owner()`
 - the Morpho ERC-4626 vault is enabled with `setSupportedVault(vault, true)`
 - monitored wallet has approved the vault share token to `vaultWithdrawContract`
-- the matching vault reports a positive `maxWithdraw(monitoredWallet)`
+- the matching vault has usable owner-specific capacity:
+  - positive `maxWithdraw(monitoredWallet)` for standard ERC-4626 vaults
+  - or, for Morpho Vault V2 vaults whose max functions conservatively return
+    zero, positive wallet share asset value from `previewRedeem(balanceOf(wallet))`
 
 ## Dry Run vs Live
 
@@ -141,7 +144,7 @@ Live:
 - Missing/invalid `vaultWithdrawContract` when pre-rescue is enabled
 - Cooldown active
 - No usable debt token (balance/allowance/max cap)
-- No matching Morpho vault with a positive user-specific `maxWithdraw`
+- No matching Morpho vault with usable owner-specific withdrawal capacity
 - Projected HF cannot reach `minResultingHF`
 - Gas above `maxGasGwei`
 - Insufficient ETH for gas
@@ -169,10 +172,14 @@ vault into the wallet _before_ HF reaches the layer-1 trigger.
 - Layer 0 fires only when HF is in the buffer band `[triggerHF, preRescueTriggerHF)`.
 - It computes the debt repay amount that would be needed to reach `targetHF` using the relevant Aave or Morpho rescue contract preview.
 - The capacity search is capped at `min(wallet debt-token balance + usable vault withdrawal, maxRepayAmount)`.
-- The usable vault amount is capped by both `maxVaultWithdrawAmount` and the vault's user-specific `maxWithdraw(monitoredWallet)`.
+- The usable vault amount is capped by both `maxVaultWithdrawAmount` and the
+  vault's owner-specific capacity. Standard ERC-4626 vaults use
+  `maxWithdraw(monitoredWallet)`; Morpho Vault V2 vaults fall back to the
+  wallet's share asset value because their max functions intentionally return
+  zero.
 - It checks the wallet for existing balance and withdraws only the shortfall.
 - The vault is selected automatically by matching the loan's debt-token address;
-  if multiple vaults match, the one with the largest on-chain `maxWithdraw(monitoredWallet)` wins.
+  if multiple vaults match, the one with the largest on-chain usable capacity wins.
 - Withdrawn assets are sent directly to the monitored wallet via the ERC-4626
   `withdraw(assets, owner, owner)` call. The helper contract never custodies
   funds.

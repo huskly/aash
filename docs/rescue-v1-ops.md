@@ -297,6 +297,17 @@ export MORPHO_VAULT=0x...                # ERC-4626 vault to enable at deploy ti
 export RPC_URL=https://rpc.mevblocker.io # or https://eth.llamarpc.com
 ```
 
+For the current operator defaults, the wrapper sets `RESCUE_OWNER`, `RESCUE_EXECUTOR`,
+`INITIAL_OWNER`, and `RPC_URL` the same way as `deploy-morpho-repay.sh`. With no vault argument it
+enables Gauntlet USDC Prime (`0x8c106EEDAd96553e64287A5A6839c3Cc78afA3D0`). Pass one vault address
+or a comma-separated vault list to override that default:
+
+```bash
+./deploy-morpho-vault-withdraw.sh --dry-run
+./deploy-morpho-vault-withdraw.sh 0xVaultAddress --dry-run
+./deploy-morpho-vault-withdraw.sh 0xVaultA,0xVaultB --no-dry-run
+```
+
 To enable multiple vaults in the same deploy, use a comma-separated `MORPHO_VAULTS` list instead
 of `MORPHO_VAULT`:
 

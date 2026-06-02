@@ -30,6 +30,9 @@ const VAULT_WITHDRAW_INTERFACE = new Interface([
 
 const ERC4626_INTERFACE = new Interface([
   'function maxWithdraw(address owner) view returns (uint256)',
+  'function maxRedeem(address owner) view returns (uint256)',
+  'function previewRedeem(uint256 shares) view returns (uint256)',
+  'function previewWithdraw(uint256 assets) view returns (uint256)',
 ]);
 
 const MIN_ETH_FOR_GAS = 0.005;
@@ -47,6 +50,17 @@ export type WatchdogLogEntry = {
   projectedHF: number;
   txHash?: string;
   vaultAddress?: string;
+  diagnostics?: Record<string, unknown>;
+};
+
+type VaultWithdrawCapacity = {
+  vault: MorphoVaultPosition;
+  capacityRaw: bigint;
+  maxWithdrawRaw: bigint;
+  maxRedeemRaw: bigint;
+  shareBalanceRaw: bigint;
+  shareAssetValueRaw: bigint;
+  source: 'maxWithdraw' | 'maxRedeem' | 'shareBalanceFallback' | 'none';
 };
 
 export class Watchdog {
@@ -595,32 +609,25 @@ export class Watchdog {
       : (amount: bigint) =>
           this.previewResultingHf(provider, rescueContract, walletAddress, debtToken, amount);
 
-    // 1. Find candidate vaults (matching the debt token) and query each one's
-    //    user-specific maxWithdraw on-chain. We can't trust Morpho API
-    //    `totalAssets` as a proxy for "withdrawable by this user" — it's a
-    //    vault-wide total, not per-owner, and ignores liquidity / share-balance
-    //    constraints. Pick the candidate with the largest withdrawable amount.
+    // 1. Find candidate vaults matching the debt token and resolve each user's
+    //    usable capacity on-chain. ERC-4626 maxWithdraw is the safest signal
+    //    when populated, but Morpho Vault V2 deliberately returns zero from max
+    //    functions, so fall back to the owner's share asset value in that case.
+    //    Pick the candidate with the largest usable amount.
     const debtTokenLower = debtToken.toLowerCase();
     const candidates = vaults.filter((v) => v.asset.address.toLowerCase() === debtTokenLower);
 
     let walletBalanceRaw: bigint;
-    let vaultMaxWithdrawals: { vault: MorphoVaultPosition; maxWithdrawRaw: bigint }[];
+    let vaultCapacities: VaultWithdrawCapacity[];
     try {
-      const [balance, maxWithdrawals] = await Promise.all([
+      const [balance, capacities] = await Promise.all([
         this.getTokenBalance(provider, debtToken, walletAddress),
         Promise.all(
-          candidates.map(async (vault) => ({
-            vault,
-            maxWithdrawRaw: await this.getVaultMaxWithdraw(
-              provider,
-              vault.vaultAddress,
-              walletAddress,
-            ),
-          })),
+          candidates.map((vault) => this.getVaultWithdrawCapacity(provider, vault, walletAddress)),
         ),
       ]);
       walletBalanceRaw = balance;
-      vaultMaxWithdrawals = maxWithdrawals;
+      vaultCapacities = capacities;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.addLog({
@@ -638,24 +645,50 @@ export class Watchdog {
       return;
     }
 
-    const bestVault = vaultMaxWithdrawals
-      .filter((entry) => entry.maxWithdrawRaw > 0n)
+    const vaultDiagnostics = vaultCapacities.map((entry) => ({
+      vaultAddress: entry.vault.vaultAddress,
+      vaultName: entry.vault.vaultName,
+      assetSymbol: entry.vault.asset.symbol,
+      assetAddress: entry.vault.asset.address,
+      apiTotalAssets: Number(entry.vault.totalAssets.toFixed(6)),
+      withdrawCapacity: this.toFormattedAmount(entry.capacityRaw, debtDecimals),
+      withdrawCapacitySource: entry.source,
+      erc4626MaxWithdraw: this.toFormattedAmount(entry.maxWithdrawRaw, debtDecimals),
+      erc4626MaxRedeemShares: entry.maxRedeemRaw.toString(),
+      vaultShareBalance: entry.shareBalanceRaw.toString(),
+      shareAssetValue: this.toFormattedAmount(entry.shareAssetValueRaw, debtDecimals),
+    }));
+
+    const bestVault = vaultCapacities
+      .filter((entry) => entry.capacityRaw > 0n)
       .reduce<
-        { vault: MorphoVaultPosition; maxWithdrawRaw: bigint } | undefined
-      >((best, entry) => (!best || entry.maxWithdrawRaw > best.maxWithdrawRaw ? entry : best), undefined);
+        VaultWithdrawCapacity | undefined
+      >((best, entry) => (!best || entry.capacityRaw > best.capacityRaw ? entry : best), undefined);
 
     if (!bestVault) {
+      const reason =
+        candidates.length === 0
+          ? `Pre-rescue: no Morpho vault position matched ${debtSymbol}`
+          : `Pre-rescue: matching Morpho vaults report 0 usable ${debtSymbol}`;
       this.addLog({
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
         protocol,
         action: 'skipped',
-        reason: `Pre-rescue: no Morpho vault with withdrawable ${debtSymbol} found`,
+        reason,
         healthFactor,
         repayAmount: 0,
         repayAssetSymbol: debtSymbol,
         projectedHF: healthFactor,
+        diagnostics: {
+          debtToken,
+          debtSymbol,
+          walletBalance: this.toFormattedAmount(walletBalanceRaw, debtDecimals),
+          receivedVaultCount: vaults.length,
+          matchingVaultCount: candidates.length,
+          vaults: vaultDiagnostics,
+        },
       });
       return;
     }
@@ -669,7 +702,7 @@ export class Watchdog {
       debtDecimals,
     );
     const maxRepayRaw = parseUnits(config.maxRepayAmount.toFixed(debtDecimals), debtDecimals);
-    const usableVaultRaw = minBigInt(bestVault.maxWithdrawRaw, maxVaultWithdrawRaw);
+    const usableVaultRaw = minBigInt(bestVault.capacityRaw, maxVaultWithdrawRaw);
     const totalCapacityRaw = minBigInt(walletBalanceRaw + usableVaultRaw, maxRepayRaw);
 
     let neededRaw: bigint;
@@ -740,6 +773,69 @@ export class Watchdog {
 
     const withdrawAmount = this.toFormattedAmount(withdrawRaw, debtDecimals);
 
+    if (!config.dryRun) {
+      try {
+        const [requiredSharesRaw, allowanceRaw] = await Promise.all([
+          this.getVaultPreviewWithdraw(provider, matchingVault.vaultAddress, withdrawRaw),
+          this.getTokenAllowance(
+            provider,
+            matchingVault.vaultAddress,
+            walletAddress,
+            vaultWithdrawContract,
+          ),
+        ]);
+        if (allowanceRaw < requiredSharesRaw) {
+          this.addLog({
+            timestamp: now,
+            loanId: loan.id,
+            wallet: walletAddress,
+            protocol,
+            action: 'skipped',
+            reason: `Pre-rescue: insufficient ${matchingVault.vaultSymbol} share allowance for vault withdraw contract`,
+            healthFactor,
+            repayAmount: withdrawAmount,
+            repayAssetSymbol: debtSymbol,
+            projectedHF: healthFactor,
+            vaultAddress: matchingVault.vaultAddress,
+            diagnostics: {
+              debtToken,
+              walletBalance: this.toFormattedAmount(walletBalanceRaw, debtDecimals),
+              neededAmount: this.toFormattedAmount(neededRaw, debtDecimals),
+              selectedVaultCapacity: this.toFormattedAmount(bestVault.capacityRaw, debtDecimals),
+              selectedVaultCapacitySource: bestVault.source,
+              usableVaultAmount: this.toFormattedAmount(usableVaultRaw, debtDecimals),
+              requiredShares: requiredSharesRaw.toString(),
+              shareAllowance: allowanceRaw.toString(),
+              vaultWithdrawContract,
+              vaults: vaultDiagnostics,
+            },
+          });
+          return;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        this.addLog({
+          timestamp: now,
+          loanId: loan.id,
+          wallet: walletAddress,
+          protocol,
+          action: 'skipped',
+          reason: `Pre-rescue allowance check failed: ${message}`,
+          healthFactor,
+          repayAmount: withdrawAmount,
+          repayAssetSymbol: debtSymbol,
+          projectedHF: healthFactor,
+          vaultAddress: matchingVault.vaultAddress,
+          diagnostics: {
+            debtToken,
+            vaultWithdrawContract,
+            vaults: vaultDiagnostics,
+          },
+        });
+        return;
+      }
+    }
+
     if (config.dryRun) {
       this.addLog({
         timestamp: now,
@@ -753,6 +849,15 @@ export class Watchdog {
         repayAssetSymbol: debtSymbol,
         projectedHF: healthFactor,
         vaultAddress: matchingVault.vaultAddress,
+        diagnostics: {
+          debtToken,
+          walletBalance: this.toFormattedAmount(walletBalanceRaw, debtDecimals),
+          neededAmount: this.toFormattedAmount(neededRaw, debtDecimals),
+          selectedVaultCapacity: this.toFormattedAmount(bestVault.capacityRaw, debtDecimals),
+          selectedVaultCapacitySource: bestVault.source,
+          usableVaultAmount: this.toFormattedAmount(usableVaultRaw, debtDecimals),
+          vaults: vaultDiagnostics,
+        },
       });
       this.cooldowns.set(stateKey, now);
       await this.notify(
@@ -823,6 +928,15 @@ export class Watchdog {
         projectedHF: healthFactor,
         txHash,
         vaultAddress: matchingVault.vaultAddress,
+        diagnostics: {
+          debtToken,
+          walletBalance: this.toFormattedAmount(walletBalanceRaw, debtDecimals),
+          neededAmount: this.toFormattedAmount(neededRaw, debtDecimals),
+          selectedVaultCapacity: this.toFormattedAmount(bestVault.capacityRaw, debtDecimals),
+          selectedVaultCapacitySource: bestVault.source,
+          usableVaultAmount: this.toFormattedAmount(usableVaultRaw, debtDecimals),
+          vaults: vaultDiagnostics,
+        },
       });
       this.cooldowns.set(stateKey, Date.now());
       await this.notify(
@@ -848,6 +962,15 @@ export class Watchdog {
         repayAssetSymbol: debtSymbol,
         projectedHF: healthFactor,
         vaultAddress: matchingVault.vaultAddress,
+        diagnostics: {
+          debtToken,
+          walletBalance: this.toFormattedAmount(walletBalanceRaw, debtDecimals),
+          neededAmount: this.toFormattedAmount(neededRaw, debtDecimals),
+          selectedVaultCapacity: this.toFormattedAmount(bestVault.capacityRaw, debtDecimals),
+          selectedVaultCapacitySource: bestVault.source,
+          usableVaultAmount: this.toFormattedAmount(usableVaultRaw, debtDecimals),
+          vaults: vaultDiagnostics,
+        },
       });
       this.cooldowns.set(stateKey, Date.now());
       await this.notify(
@@ -1046,15 +1169,76 @@ export class Watchdog {
     return BigInt(balance);
   }
 
-  private async getVaultMaxWithdraw(
+  private async getVaultWithdrawCapacity(
+    provider: JsonRpcProvider,
+    vault: MorphoVaultPosition,
+    owner: string,
+  ): Promise<VaultWithdrawCapacity> {
+    const vaultAddress = vault.vaultAddress;
+    const data = ERC4626_INTERFACE.encodeFunctionData('maxWithdraw', [owner]);
+    const result = await provider.call({ to: vaultAddress, data });
+    const [maxAssets] = ERC4626_INTERFACE.decodeFunctionResult('maxWithdraw', result);
+    const maxWithdrawRaw = BigInt(maxAssets);
+
+    if (maxWithdrawRaw > 0n) {
+      return {
+        vault,
+        capacityRaw: maxWithdrawRaw,
+        maxWithdrawRaw,
+        maxRedeemRaw: 0n,
+        shareBalanceRaw: 0n,
+        shareAssetValueRaw: 0n,
+        source: 'maxWithdraw',
+      };
+    }
+
+    const maxRedeemData = ERC4626_INTERFACE.encodeFunctionData('maxRedeem', [owner]);
+    const balanceData = ERC20_INTERFACE.encodeFunctionData('balanceOf', [owner]);
+    const [maxRedeemResult, balanceResult] = await Promise.all([
+      provider.call({ to: vaultAddress, data: maxRedeemData }),
+      provider.call({ to: vaultAddress, data: balanceData }),
+    ]);
+    const [maxShares] = ERC4626_INTERFACE.decodeFunctionResult('maxRedeem', maxRedeemResult);
+    const [shareBalance] = ERC20_INTERFACE.decodeFunctionResult('balanceOf', balanceResult);
+    const maxRedeemRaw = BigInt(maxShares);
+    const shareBalanceRaw = BigInt(shareBalance);
+    const sharesForPreview = maxRedeemRaw > 0n ? maxRedeemRaw : shareBalanceRaw;
+    let shareAssetValueRaw = 0n;
+
+    if (sharesForPreview > 0n) {
+      const previewData = ERC4626_INTERFACE.encodeFunctionData('previewRedeem', [sharesForPreview]);
+      const previewResult = await provider.call({ to: vaultAddress, data: previewData });
+      const [assets] = ERC4626_INTERFACE.decodeFunctionResult('previewRedeem', previewResult);
+      shareAssetValueRaw = BigInt(assets);
+    }
+
+    const source =
+      maxRedeemRaw > 0n
+        ? 'maxRedeem'
+        : shareBalanceRaw > 0n && shareAssetValueRaw > 0n
+          ? 'shareBalanceFallback'
+          : 'none';
+
+    return {
+      vault,
+      capacityRaw: source === 'none' ? 0n : shareAssetValueRaw,
+      maxWithdrawRaw,
+      maxRedeemRaw,
+      shareBalanceRaw,
+      shareAssetValueRaw,
+      source,
+    };
+  }
+
+  private async getVaultPreviewWithdraw(
     provider: JsonRpcProvider,
     vault: string,
-    owner: string,
+    assets: bigint,
   ): Promise<bigint> {
-    const data = ERC4626_INTERFACE.encodeFunctionData('maxWithdraw', [owner]);
+    const data = ERC4626_INTERFACE.encodeFunctionData('previewWithdraw', [assets]);
     const result = await provider.call({ to: vault, data });
-    const [maxAssets] = ERC4626_INTERFACE.decodeFunctionResult('maxWithdraw', result);
-    return BigInt(maxAssets);
+    const [shares] = ERC4626_INTERFACE.decodeFunctionResult('previewWithdraw', result);
+    return BigInt(shares);
   }
 
   private async getTokenAllowance(
@@ -1188,6 +1372,8 @@ export class Watchdog {
         repayAmount: entry.repayAmount,
         repayAssetSymbol: entry.repayAssetSymbol,
         ...(entry.txHash && { txHash: entry.txHash }),
+        ...(entry.vaultAddress && { vaultAddress: entry.vaultAddress }),
+        ...(entry.diagnostics && { diagnostics: entry.diagnostics }),
       },
       'Watchdog log entry',
     );
