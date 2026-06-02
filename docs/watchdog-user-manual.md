@@ -180,6 +180,8 @@ vault into the wallet _before_ HF reaches the layer-1 trigger.
 - It checks the wallet for existing balance and withdraws only the shortfall.
 - The vault is selected automatically by matching the loan's debt-token address;
   if multiple vaults match, the one with the largest on-chain usable capacity wins.
+- In live mode, it simulates the exact helper `withdraw(...)` call immediately
+  before broadcasting so reverts are logged before submitting a raw transaction.
 - Withdrawn assets are sent directly to the monitored wallet via the ERC-4626
   `withdraw(assets, owner, owner)` call. The helper contract never custodies
   funds.

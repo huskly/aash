@@ -36,6 +36,7 @@ type WatchdogInternals = {
   getGasPriceGwei: (...args: unknown[]) => Promise<number>;
   getEthBalance: (...args: unknown[]) => Promise<number>;
   submitRescueTransaction: (...args: unknown[]) => Promise<string>;
+  preflightVaultWithdrawTransaction: (...args: unknown[]) => Promise<void>;
   submitVaultWithdrawTransaction: (...args: unknown[]) => Promise<string>;
   waitForReceiptOrReplacement: (
     tx: WaitableTransaction,
@@ -413,6 +414,7 @@ function stubPreRescueEvaluation(
     previewResultingHf: async () => 1_900_000_000_000_000_000n,
     getGasPriceGwei: async () => 10,
     getEthBalance: async () => 1,
+    preflightVaultWithdrawTransaction: async () => {},
     submitVaultWithdrawTransaction: async () => '0xvaulttx',
     ...overrides,
   });
@@ -743,4 +745,31 @@ test('pre-rescue: caps withdrawal at maxVaultWithdrawAmount', async () => {
   assert.equal(log[0]?.action, 'vault-withdraw');
   assert.equal(log[0]?.repayAmount, 50);
   assert.equal(capturedAmount, 50_000_000n);
+});
+
+test('pre-rescue: preflights live vault withdraw before broadcasting', async () => {
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+    }),
+  );
+  let submitted = false;
+  stubPreRescueEvaluation(watchdog, {
+    preflightVaultWithdrawTransaction: async () => {
+      throw new Error('Preflight vault withdraw reverted: execution reverted');
+    },
+    submitVaultWithdrawTransaction: async () => {
+      submitted = true;
+      return '0xvaulttx';
+    },
+  });
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault()]);
+
+  assert.equal(submitted, false);
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'skipped');
+  assert.match(log[0]?.reason ?? '', /Preflight vault withdraw reverted/);
 });

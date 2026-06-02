@@ -908,6 +908,13 @@ export class Watchdog {
 
     const deadline = Math.floor(Date.now() / 1000) + config.deadlineSeconds;
     try {
+      await this.preflightVaultWithdrawTransaction(
+        walletAddress,
+        vaultWithdrawContract,
+        matchingVault.vaultAddress,
+        withdrawRaw,
+        deadline,
+      );
       const txHash = await this.submitVaultWithdrawTransaction(
         walletAddress,
         vaultWithdrawContract,
@@ -980,6 +987,28 @@ export class Watchdog {
           `Attempted: <b>${withdrawAmount.toFixed(2)} ${debtSymbol}</b> from ${matchingVault.vaultName}\n` +
           `Error: ${message}`,
       );
+    }
+  }
+
+  private async preflightVaultWithdrawTransaction(
+    user: string,
+    vaultWithdrawContract: string,
+    vault: string,
+    assetsRaw: bigint,
+    deadline: number,
+  ): Promise<void> {
+    const wallet = this.getWallet();
+    const provider = this.getProvider();
+    const data = VAULT_WITHDRAW_INTERFACE.encodeFunctionData('withdraw', [
+      { user, vault, assets: assetsRaw, deadline },
+    ]);
+
+    try {
+      await provider.call({ from: wallet.address, to: vaultWithdrawContract, data });
+    } catch (error) {
+      throw new Error(`Preflight vault withdraw reverted: ${this.formatTransactionError(error)}`, {
+        cause: error,
+      });
     }
   }
 

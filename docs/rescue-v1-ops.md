@@ -453,6 +453,9 @@ Operational notes:
 - The watchdog chooses candidate vaults by debt-token address and selects the vault with the largest usable owner-specific capacity.
 - The withdrawal amount is the shortfall between wallet balance and the debt-token amount needed to reach `targetHF`.
 - Withdrawal is capped by `maxVaultWithdrawAmount`, owner-specific usable capacity, and the layer-1 `maxRepayAmount`.
+- Live withdrawals run an `eth_call` preflight of the exact helper transaction before
+  broadcasting; preflight reverts are logged as `Pre-rescue tx failed` without
+  submitting a raw transaction.
 - Pre-rescue only moves funds into the monitored wallet. If HF later crosses `triggerHF`, the existing layer-1 rescue consumes that wallet balance on a later poll.
 - If HF recovers above `preRescueTriggerHF`, the withdrawn funds remain in the wallet until manually redeposited.
 - The pre-rescue cooldown uses a separate `-prerescue` key; failed live pre-rescue transactions also apply cooldown.
