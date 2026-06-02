@@ -9,8 +9,8 @@ type HfSliderProps = {
   onCommit: (values: { triggerHF: number; minResultingHF: number; targetHF: number }) => void;
 };
 
-const MIN = 1.0;
-const MAX = 3.0;
+const MIN = 1.2;
+const MAX = 2.2;
 const STEP = 0.01;
 // Minimum gap between adjacent thumbs
 const GAP = 0.01;
@@ -64,7 +64,7 @@ export function HfSlider({
 
   // Tick marks for whole numbers
   const ticks = [];
-  for (let v = MIN; v <= MAX; v += 0.5) {
+  for (let v = MIN; v <= MAX + 1e-9; v += 0.2) {
     const pct = ((v - MIN) / (MAX - MIN)) * 100;
     ticks.push(
       <div key={v} className="absolute" style={{ left: `${pct}%` }}>
