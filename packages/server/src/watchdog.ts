@@ -37,6 +37,8 @@ const ERC4626_INTERFACE = new Interface([
 
 const MIN_ETH_FOR_GAS = 0.005;
 const TELEGRAM_MESSAGE_LIMIT = 3900;
+const MIN_PRE_RESCUE_WITHDRAW_AMOUNT = 500;
+const PRE_RESCUE_WITHDRAW_BUFFER_AMOUNT = 500;
 export type WatchdogLogEntry = {
   timestamp: number;
   loanId: string;
@@ -763,11 +765,51 @@ export class Watchdog {
       return;
     }
 
-    // 4. Withdraw only the shortfall, bounded by what the vault will actually
-    //    allow this user to pull and by maxVaultWithdrawAmount.
+    // 4. Withdraw the shortfall plus a small buffer, with a hard floor to avoid
+    //    burning gas on tiny vault movements.
     const shortfallRaw = neededRaw - walletBalanceRaw;
-    const withdrawRaw = minBigInt(shortfallRaw, usableVaultRaw);
-    if (withdrawRaw <= 0n) return;
+    const minPreRescueWithdrawRaw = parseUnits(
+      MIN_PRE_RESCUE_WITHDRAW_AMOUNT.toFixed(debtDecimals),
+      debtDecimals,
+    );
+    const preRescueWithdrawBufferRaw = parseUnits(
+      PRE_RESCUE_WITHDRAW_BUFFER_AMOUNT.toFixed(debtDecimals),
+      debtDecimals,
+    );
+    const desiredWithdrawRaw = maxBigInt(
+      shortfallRaw + preRescueWithdrawBufferRaw,
+      minPreRescueWithdrawRaw,
+    );
+    const withdrawRaw = minBigInt(desiredWithdrawRaw, usableVaultRaw);
+    if (withdrawRaw < minPreRescueWithdrawRaw) {
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        protocol,
+        action: 'skipped',
+        reason: `Pre-rescue: planned withdrawal ${this.toFormattedAmount(withdrawRaw, debtDecimals).toFixed(2)} ${debtSymbol} is below minimum ${MIN_PRE_RESCUE_WITHDRAW_AMOUNT.toFixed(2)}`,
+        healthFactor,
+        repayAmount: 0,
+        repayAssetSymbol: debtSymbol,
+        projectedHF: healthFactor,
+        vaultAddress: bestVault.vault.vaultAddress,
+        diagnostics: {
+          debtToken,
+          walletBalance: this.toFormattedAmount(walletBalanceRaw, debtDecimals),
+          neededAmount: this.toFormattedAmount(neededRaw, debtDecimals),
+          shortfallAmount: this.toFormattedAmount(shortfallRaw, debtDecimals),
+          desiredWithdrawAmount: this.toFormattedAmount(desiredWithdrawRaw, debtDecimals),
+          minPreRescueWithdrawAmount: MIN_PRE_RESCUE_WITHDRAW_AMOUNT,
+          preRescueWithdrawBufferAmount: PRE_RESCUE_WITHDRAW_BUFFER_AMOUNT,
+          selectedVaultCapacity: this.toFormattedAmount(bestVault.capacityRaw, debtDecimals),
+          selectedVaultCapacitySource: bestVault.source,
+          usableVaultAmount: this.toFormattedAmount(usableVaultRaw, debtDecimals),
+          vaults: vaultDiagnostics,
+        },
+      });
+      return;
+    }
 
     const matchingVault = bestVault.vault;
 
@@ -801,6 +843,10 @@ export class Watchdog {
               debtToken,
               walletBalance: this.toFormattedAmount(walletBalanceRaw, debtDecimals),
               neededAmount: this.toFormattedAmount(neededRaw, debtDecimals),
+              shortfallAmount: this.toFormattedAmount(shortfallRaw, debtDecimals),
+              desiredWithdrawAmount: this.toFormattedAmount(desiredWithdrawRaw, debtDecimals),
+              minPreRescueWithdrawAmount: MIN_PRE_RESCUE_WITHDRAW_AMOUNT,
+              preRescueWithdrawBufferAmount: PRE_RESCUE_WITHDRAW_BUFFER_AMOUNT,
               selectedVaultCapacity: this.toFormattedAmount(bestVault.capacityRaw, debtDecimals),
               selectedVaultCapacitySource: bestVault.source,
               usableVaultAmount: this.toFormattedAmount(usableVaultRaw, debtDecimals),
@@ -829,6 +875,12 @@ export class Watchdog {
           diagnostics: {
             debtToken,
             vaultWithdrawContract,
+            walletBalance: this.toFormattedAmount(walletBalanceRaw, debtDecimals),
+            neededAmount: this.toFormattedAmount(neededRaw, debtDecimals),
+            shortfallAmount: this.toFormattedAmount(shortfallRaw, debtDecimals),
+            desiredWithdrawAmount: this.toFormattedAmount(desiredWithdrawRaw, debtDecimals),
+            minPreRescueWithdrawAmount: MIN_PRE_RESCUE_WITHDRAW_AMOUNT,
+            preRescueWithdrawBufferAmount: PRE_RESCUE_WITHDRAW_BUFFER_AMOUNT,
             vaults: vaultDiagnostics,
           },
         });
@@ -853,6 +905,10 @@ export class Watchdog {
           debtToken,
           walletBalance: this.toFormattedAmount(walletBalanceRaw, debtDecimals),
           neededAmount: this.toFormattedAmount(neededRaw, debtDecimals),
+          shortfallAmount: this.toFormattedAmount(shortfallRaw, debtDecimals),
+          desiredWithdrawAmount: this.toFormattedAmount(desiredWithdrawRaw, debtDecimals),
+          minPreRescueWithdrawAmount: MIN_PRE_RESCUE_WITHDRAW_AMOUNT,
+          preRescueWithdrawBufferAmount: PRE_RESCUE_WITHDRAW_BUFFER_AMOUNT,
           selectedVaultCapacity: this.toFormattedAmount(bestVault.capacityRaw, debtDecimals),
           selectedVaultCapacitySource: bestVault.source,
           usableVaultAmount: this.toFormattedAmount(usableVaultRaw, debtDecimals),
@@ -939,6 +995,10 @@ export class Watchdog {
           debtToken,
           walletBalance: this.toFormattedAmount(walletBalanceRaw, debtDecimals),
           neededAmount: this.toFormattedAmount(neededRaw, debtDecimals),
+          shortfallAmount: this.toFormattedAmount(shortfallRaw, debtDecimals),
+          desiredWithdrawAmount: this.toFormattedAmount(desiredWithdrawRaw, debtDecimals),
+          minPreRescueWithdrawAmount: MIN_PRE_RESCUE_WITHDRAW_AMOUNT,
+          preRescueWithdrawBufferAmount: PRE_RESCUE_WITHDRAW_BUFFER_AMOUNT,
           selectedVaultCapacity: this.toFormattedAmount(bestVault.capacityRaw, debtDecimals),
           selectedVaultCapacitySource: bestVault.source,
           usableVaultAmount: this.toFormattedAmount(usableVaultRaw, debtDecimals),
@@ -973,6 +1033,10 @@ export class Watchdog {
           debtToken,
           walletBalance: this.toFormattedAmount(walletBalanceRaw, debtDecimals),
           neededAmount: this.toFormattedAmount(neededRaw, debtDecimals),
+          shortfallAmount: this.toFormattedAmount(shortfallRaw, debtDecimals),
+          desiredWithdrawAmount: this.toFormattedAmount(desiredWithdrawRaw, debtDecimals),
+          minPreRescueWithdrawAmount: MIN_PRE_RESCUE_WITHDRAW_AMOUNT,
+          preRescueWithdrawBufferAmount: PRE_RESCUE_WITHDRAW_BUFFER_AMOUNT,
           selectedVaultCapacity: this.toFormattedAmount(bestVault.capacityRaw, debtDecimals),
           selectedVaultCapacitySource: bestVault.source,
           usableVaultAmount: this.toFormattedAmount(usableVaultRaw, debtDecimals),
@@ -1415,4 +1479,8 @@ export class Watchdog {
 
 function minBigInt(...values: bigint[]): bigint {
   return values.reduce((min, value) => (value < min ? value : min));
+}
+
+function maxBigInt(...values: bigint[]): bigint {
+  return values.reduce((max, value) => (value > max ? value : max));
 }

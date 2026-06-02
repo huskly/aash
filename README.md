@@ -225,6 +225,7 @@ The watchdog monitors loan health and can execute an atomic on-chain rescue when
 - For Morpho Blue deploys, generate exact `MORPHO_*` market env vars from a market URL or unique key with `yarn morpho:market-env <market-url-or-unique-key>` to avoid loan/collateral/oracle/IRM mismatches.
 - A single Morpho rescue contract can support multiple Morpho markets for the same monitored wallet/executor pair. Enable each supported market on-chain with `setSupportedMarket(...)`, typically from Etherscan Write Contract signed by the owner wallet.
 - Optional pre-rescue uses `MorphoVaultWithdrawV1`: enable each supported Morpho vault with `setSupportedVault(...)`, approve vault shares from the monitored wallet to `vaultWithdrawContract`, and configure `preRescueTriggerHF > triggerHF`.
+- Pre-rescue vault withdrawals use a hardcoded 500 debt-token minimum plus a 500 debt-token buffer over the exact wallet shortfall, so the watchdog avoids submitting dust-sized vault withdrawals.
 - API: `GET /api/watchdog/status` for status and recent action log
 - Telegram: `/watchdog` command for status and recent actions
 - Config: watchdog and utilization sections in `GET/PUT /api/config`

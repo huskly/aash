@@ -476,7 +476,7 @@ test('pre-rescue: HF in buffer band with matching vault triggers vault withdrawa
   assert.equal(log[0]?.action, 'vault-withdraw');
   assert.equal(log[0]?.txHash, '0xvaulttx');
   assert.equal(log[0]?.vaultAddress, VAULT_ADDRESS);
-  assert.equal(log[0]?.repayAmount, 200);
+  assert.equal(log[0]?.repayAmount, 500);
   assert.equal(messages.length, 1);
   assert.match(messages[0]!, /Pre-rescue vault withdrawal/);
 });
@@ -497,6 +497,35 @@ test('pre-rescue: dry-run logs vault-withdraw-dry-run', async () => {
   assert.equal(log[0]?.action, 'vault-withdraw-dry-run');
   assert.equal(messages.length, 1);
   assert.match(messages[0]!, /Pre-rescue DRY RUN/);
+});
+
+test('pre-rescue: tiny shortfall withdraws minimum instead of dust amount', async () => {
+  const { watchdog } = createWatchdog(
+    createConfig({
+      dryRun: false,
+      preRescueEnabled: true,
+      vaultWithdrawContract: VAULT_WITHDRAW_CONTRACT,
+      maxVaultWithdrawAmount: 500,
+    }),
+  );
+  let capturedAmount: bigint | null = null;
+  stubPreRescueEvaluation(watchdog, {
+    getTokenBalance: async () => 499_300_000n,
+    findRequiredAmountRawGeneric: async () => 500_000_000n,
+    submitVaultWithdrawTransaction: async (...args: unknown[]) => {
+      capturedAmount = args[3] as bigint;
+      return '0xvaulttx';
+    },
+  });
+
+  await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault()]);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'vault-withdraw');
+  assert.equal(log[0]?.repayAmount, 500);
+  assert.equal(capturedAmount, 500_000_000n);
+  assert.equal(log[0]?.diagnostics?.['shortfallAmount'], 0.7);
+  assert.equal(log[0]?.diagnostics?.['desiredWithdrawAmount'], 500.7);
 });
 
 test('pre-rescue: skips when wallet already holds enough', async () => {
@@ -597,7 +626,7 @@ test('pre-rescue: uses share asset value fallback when vault max functions are z
 
   const log = watchdog.getLog();
   assert.equal(log[0]?.action, 'vault-withdraw');
-  assert.equal(log[0]?.repayAmount, 200);
+  assert.equal(log[0]?.repayAmount, 500);
   assert.equal(log[0]?.diagnostics?.['selectedVaultCapacity'], 1000);
   assert.equal(log[0]?.diagnostics?.['selectedVaultCapacitySource'], 'shareBalanceFallback');
 });
@@ -629,12 +658,13 @@ test('pre-rescue: live mode skips when vault share allowance is insufficient', a
   assert.equal(log[0]?.diagnostics?.['shareAllowance'], '0');
 });
 
-test('pre-rescue: capacity calc uses wallet + vault (does not under-skip)', async () => {
+test('pre-rescue: capacity calc uses wallet + vault and applies minimum withdrawal', async () => {
   // Scenario from review feedback: need 800 USDC, wallet has 400, maxVaultWithdraw=500.
   // Old behavior wrongly skipped because 500 alone didn't reach target HF.
   // New behavior must run findRequiredAmount with bound = min(wallet+vault, maxRepay)
   // = min(400 + 500, 500 default maxRepay) = 500, and search returns 500 which is
-  // achievable. Wallet 400 < needed 500 → withdraw shortfall 100.
+  // achievable. Wallet 400 < needed 500, so withdraw the 500 USDC minimum instead
+  // of the exact 100 USDC shortfall.
   const { watchdog } = createWatchdog(
     createConfig({
       dryRun: false,
@@ -667,10 +697,12 @@ test('pre-rescue: capacity calc uses wallet + vault (does not under-skip)', asyn
   assert.equal(boundSeen, 500_000_000n);
   const log = watchdog.getLog();
   assert.equal(log[0]?.action, 'vault-withdraw');
-  assert.equal(log[0]?.repayAmount, 100); // shortfall = 500 - 400
+  assert.equal(log[0]?.repayAmount, 500);
+  assert.equal(log[0]?.diagnostics?.['shortfallAmount'], 100);
+  assert.equal(log[0]?.diagnostics?.['desiredWithdrawAmount'], 600);
 });
 
-test('pre-rescue: caps withdrawal at ERC-4626 maxWithdraw', async () => {
+test('pre-rescue: skips when ERC-4626 maxWithdraw is below minimum withdrawal', async () => {
   // Vault reports totalAssets=10_000 via Morpho API but maxWithdraw returns
   // only 75 USDC for this user. The withdrawal must respect maxWithdraw.
   const { watchdog } = createWatchdog(
@@ -702,9 +734,9 @@ test('pre-rescue: caps withdrawal at ERC-4626 maxWithdraw', async () => {
   await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault({ totalAssets: 10_000 })]);
 
   const log = watchdog.getLog();
-  assert.equal(log[0]?.action, 'vault-withdraw');
-  assert.equal(log[0]?.repayAmount, 75);
-  assert.equal(capturedAmount, 75_000_000n);
+  assert.equal(log[0]?.action, 'skipped');
+  assert.match(log[0]?.reason ?? '', /below minimum 500\.00/);
+  assert.equal(capturedAmount, null);
 });
 
 test('pre-rescue: disabled flag bypasses layer 0 entirely', async () => {
@@ -721,7 +753,7 @@ test('pre-rescue: disabled flag bypasses layer 0 entirely', async () => {
   assert.equal(watchdog.getLog().length, 0);
 });
 
-test('pre-rescue: caps withdrawal at maxVaultWithdrawAmount', async () => {
+test('pre-rescue: skips when maxVaultWithdrawAmount is below minimum withdrawal', async () => {
   const { watchdog } = createWatchdog(
     createConfig({
       dryRun: false,
@@ -742,9 +774,9 @@ test('pre-rescue: caps withdrawal at maxVaultWithdrawAmount', async () => {
   await watchdog.evaluate(createLoanWithHF(1.67), WALLET, [createVault({ totalAssets: 10_000 })]);
 
   const log = watchdog.getLog();
-  assert.equal(log[0]?.action, 'vault-withdraw');
-  assert.equal(log[0]?.repayAmount, 50);
-  assert.equal(capturedAmount, 50_000_000n);
+  assert.equal(log[0]?.action, 'skipped');
+  assert.match(log[0]?.reason ?? '', /below minimum 500\.00/);
+  assert.equal(capturedAmount, null);
 });
 
 test('pre-rescue: preflights live vault withdraw before broadcasting', async () => {

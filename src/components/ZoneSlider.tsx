@@ -15,7 +15,7 @@ type ZoneSliderProps = {
   onCommit: (zones: ZoneEntry[]) => void;
 };
 
-const MIN = 1.0;
+const MIN = 1.2;
 const MAX = 2.0;
 const STEP = 0.05;
 

@@ -451,8 +451,9 @@ forge verify-contract --chain mainnet \
 Operational notes:
 
 - The watchdog chooses candidate vaults by debt-token address and selects the vault with the largest usable owner-specific capacity.
-- The withdrawal amount is the shortfall between wallet balance and the debt-token amount needed to reach `targetHF`.
-- Withdrawal is capped by `maxVaultWithdrawAmount`, owner-specific usable capacity, and the layer-1 `maxRepayAmount`.
+- The withdrawal amount is the shortfall between wallet balance and the debt-token amount needed to reach `targetHF`, plus a hardcoded 500 debt-token buffer.
+- The watchdog will not submit a pre-rescue vault withdrawal below 500 debt tokens. If the configured cap or owner-specific usable capacity is below that floor, it logs a skip instead of paying gas for a dust-sized movement.
+- Withdrawal is capped by `maxVaultWithdrawAmount`, owner-specific usable capacity, and the layer-1 `maxRepayAmount` during HF capacity planning.
 - Live withdrawals run an `eth_call` preflight of the exact helper transaction before
   broadcasting; preflight reverts are logged as `Pre-rescue tx failed` without
   submitting a raw transaction.

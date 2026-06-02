@@ -177,7 +177,10 @@ vault into the wallet _before_ HF reaches the layer-1 trigger.
   `maxWithdraw(monitoredWallet)`; Morpho Vault V2 vaults fall back to the
   wallet's share asset value because their max functions intentionally return
   zero.
-- It checks the wallet for existing balance and withdraws only the shortfall.
+- It checks the wallet for existing balance, then withdraws the shortfall plus a
+  500 debt-token buffer. Pre-rescue will not submit vault withdrawals below 500
+  debt tokens; if the configured cap or usable vault capacity is below that
+  floor, it skips instead of paying gas for a dust-sized movement.
 - The vault is selected automatically by matching the loan's debt-token address;
   if multiple vaults match, the one with the largest on-chain usable capacity wins.
 - In live mode, it simulates the exact helper `withdraw(...)` call immediately
