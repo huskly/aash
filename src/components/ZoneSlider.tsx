@@ -15,8 +15,8 @@ type ZoneSliderProps = {
   onCommit: (zones: ZoneEntry[]) => void;
 };
 
-const MIN = 0.5;
-const MAX = 3.0;
+const MIN = 1.0;
+const MAX = 2.0;
 const STEP = 0.05;
 
 // Colors from safe (top) to critical (bottom)
@@ -93,7 +93,7 @@ export function ZoneSlider({ zones, onChange, onCommit }: ZoneSliderProps) {
 
   // Tick marks
   const ticks = [];
-  for (let v = MIN; v <= MAX; v += 0.5) {
+  for (let v = MIN; v <= MAX + 1e-9; v += 0.2) {
     const pct = ((v - MIN) / (MAX - MIN)) * 100;
     ticks.push(
       <div key={v} className="absolute" style={{ left: `${pct}%` }}>
