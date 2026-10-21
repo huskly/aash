@@ -19,6 +19,11 @@ RUN --mount=type=secret,id=VITE_THE_GRAPH_API_KEY \
 RUN yarn workspace @aave-monitor/server run build
 
 FROM node:25-alpine
+# Node 25 has no release that drops the compromised eMudhra intermediates from its bundled
+# roots, so verify against Alpine's CA store, upgraded at build time.
+RUN apk add --no-cache --upgrade ca-certificates
+ENV NODE_OPTIONS=--use-openssl-ca \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 WORKDIR /app
 COPY --from=builder /app/package.json /app/yarn.lock ./
 COPY --from=builder /app/packages/aave-core/package.json packages/aave-core/
