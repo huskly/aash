@@ -663,9 +663,10 @@ export class Watchdog {
 
     const bestVault = vaultCapacities
       .filter((entry) => entry.capacityRaw > 0n)
-      .reduce<
-        VaultWithdrawCapacity | undefined
-      >((best, entry) => (!best || entry.capacityRaw > best.capacityRaw ? entry : best), undefined);
+      .reduce<VaultWithdrawCapacity | undefined>(
+        (best, entry) => (!best || entry.capacityRaw > best.capacityRaw ? entry : best),
+        undefined,
+      );
 
     if (!bestVault) {
       const reason =
