@@ -330,8 +330,7 @@ export function PortfolioHistoryCard({
                       if (!active || !payload?.length) return null;
                       const ts = payload[0]?.payload?.timestamp as number | undefined;
                       const point = payload[0]?.payload as
-                        | { totalAssets?: number; totalDebt?: number }
-                        | undefined;
+                        { totalAssets?: number; totalDebt?: number } | undefined;
                       return (
                         <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg">
                           {ts && (

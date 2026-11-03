@@ -22,10 +22,12 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'yarn'
+
+      - name: Enable Corepack
+        run: npm install -g corepack && corepack enable
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
 
       - name: Setup Foundry
         uses: foundry-rs/foundry-toolchain@v1

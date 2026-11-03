@@ -11,6 +11,7 @@ import {
   isWorsening,
   isImproving,
   fetchFromAaveSubgraph,
+  fetchMidnightLoans,
   fetchMorphoPositions,
   fetchTokenBalances,
   fetchUsdPrices,
@@ -247,7 +248,11 @@ export class Monitor {
       logger.warn({ wallet: this.shortAddr(address) }, 'Morpho positions unavailable');
       return { marketLoans: [], vaultPositions: [] };
     });
-    const morphoLoans = morphoPositions.marketLoans;
+    const midnightLoans = await fetchMidnightLoans(address).catch(() => {
+      logger.warn({ wallet: this.shortAddr(address) }, 'Morpho Midnight positions unavailable');
+      return [];
+    });
+    const morphoLoans = [...morphoPositions.marketLoans, ...midnightLoans];
     const morphoVaults = morphoPositions.vaultPositions;
     const loans = [...buildLoanPositions(reserves, prices), ...morphoLoans];
 
@@ -264,7 +269,7 @@ export class Monitor {
     {
       const telemetryKeys = new Map<string, { marketName: string; assetAddress: string }>();
       for (const loan of loans) {
-        if (loan.marketName.startsWith('morpho_')) continue;
+        if (!loan.marketName.startsWith('proto_')) continue;
         for (const asset of loan.borrowed) {
           const key = `${loan.marketName}:${asset.address.toLowerCase()}`;
           if (!telemetryKeys.has(key)) {
@@ -547,7 +552,7 @@ export class Monitor {
       await this.watchdog.evaluate(loan, address, morphoVaults);
     }
 
-    // Cumulative-interest snapshots for Morpho positions. Recorded every poll so
+    // Cumulative-interest snapshots for Morpho Blue and Midnight positions. Recorded every poll so
     // the history DB has dense samples; display-side queries bucket by day.
     if (this.rateHistoryDb) {
       for (const loan of morphoLoans) {
@@ -647,7 +652,7 @@ export class Monitor {
     loan: LoanPosition,
     telemetryMap: Map<string, ReserveTelemetry>,
   ): number | undefined {
-    if (loan.marketName.startsWith('morpho_')) {
+    if (!loan.marketName.startsWith('proto_')) {
       return loan.utilizationRate;
     }
     const utilizationRates = loan.borrowed

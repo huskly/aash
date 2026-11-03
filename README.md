@@ -7,7 +7,7 @@
 
   <p>
     A React + Vite dashboard that tracks Aave loans, Morpho Blue market positions,
-    and Morpho vault deposits from a wallet address and computes portfolio and risk metrics.
+    Morpho Midnight fixed-rate loans, and Morpho vault deposits from a wallet address and computes portfolio and risk metrics.
   </p>
 
   <p>
@@ -38,6 +38,7 @@
 - Multi-market support:
   - Aave V3: `proto_mainnet_v3`, `proto_lido_v3`
   - Morpho Blue: isolated markets (fetched from Morpho GraphQL API)
+  - Morpho Midnight: fixed-rate, fixed-term borrow positions (fetched from the Morpho Midnight REST API), shown as `midnight_<COLLATERAL>_<LOAN>_<maturity date>`. Debt is the amount owed at maturity, which is what Midnight's liquidation check uses, so HF and liquidation prices match the protocol. Accrued interest spreads the fixed interest (amount owed at maturity minus the principal received) in equal daily amounts from position open to maturity. Lend positions are not shown, and the watchdog does not rescue Midnight loans.
   - Morpho Vaults: vault deposits such as `Steakhouse Reservoir USDC`
 - Support for multiple loans/borrowed assets plus supply-only vault deposits.
 - Top-level portfolio metrics roll up all detected positions:
@@ -60,7 +61,7 @@
   - LTV, leverage, borrow headroom
   - Carry / Net APY summary, including loan net earnings offset by Morpho vault net income and gross annual borrow cost
   - Top portfolio card `Accrued interest` metric that sums all outstanding loans' `Accrued Int.` values when upstream APIs provide them
-  - Loan table `Accrued Int.` column for borrowed positions when provided by the upstream protocol API (currently populated for Morpho positions when available)
+  - Loan table `Accrued Int.` column for borrowed positions when provided by the upstream protocol API (currently populated for Morpho Blue positions when available, and for Morpho Midnight positions)
   - Separate Morpho vault table with deposited asset amount, USD value, net APY, and shares
   - Aave interest-rate model chart for the selected borrowed asset, including current utilization and the reserve kink
   - Borrow APR history chart for the selected borrowed asset, tracked server-side with 180-day retention
@@ -235,7 +236,7 @@ The watchdog monitors loan health and can execute an atomic on-chain rescue when
 
 1. User enters an Ethereum wallet address, provides it via query string (`wallet`, `address`, or `walletAddress`), or reloads with the last saved wallet from browser storage.
 2. App queries Aave subgraph data for supported markets.
-3. Aave reserves are grouped into loan positions per market; Morpho market loans and Morpho vault deposits are fetched from Morpho's GraphQL API.
+3. Aave reserves are grouped into loan positions per market; Morpho market loans and Morpho vault deposits are fetched from Morpho's GraphQL API, and Morpho Midnight fixed-rate loans from `https://api.morpho.org/v0/midnight`.
 4. Token prices are fetched from CoinGecko for Aave assets, while Morpho positions use API-provided pricing or USD back-calculation for borrowed assets and vault deposits. Morpho market borrow/supply rates are aligned to Morpho's interface default 1-day average APY by preferring Morpho's `avgBorrowApy` / `avgSupplyApy` fields instead of the instantaneous spot rate.
 5. Portfolio-level aggregate metrics are computed across all active positions, with loan-risk metrics kept separate from supply-only vault assets.
 6. Detailed risk metrics are computed and rendered for the selected loan, while Morpho vaults render in a separate table.
