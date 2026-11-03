@@ -26,13 +26,15 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 25
-          cache: 'yarn'
+
+      - name: Enable Corepack
+        run: npm install -g corepack && corepack enable
 
       - name: Configure base path
         run: echo "VITE_BASE_PATH=/${GITHUB_REPOSITORY#*/}/" >> "$GITHUB_ENV"
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
 
       - name: Build
         run: yarn build

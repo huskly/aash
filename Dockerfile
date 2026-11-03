@@ -1,9 +1,10 @@
 FROM node:25-alpine AS builder
 WORKDIR /app
-COPY package.json yarn.lock ./
+RUN rm -f /usr/local/bin/yarn /usr/local/bin/yarnpkg && npm install -g corepack && corepack enable
+COPY package.json yarn.lock .yarnrc.yml ./
 COPY packages/aave-core/package.json packages/aave-core/
 COPY packages/server/package.json packages/server/
-RUN yarn install --frozen-lockfile
+RUN yarn install --immutable
 COPY . .
 RUN yarn workspace @aave-monitor/core run build
 # Vite inlines VITE_* env vars at build time.
