@@ -78,7 +78,7 @@ export function usePositionDetailsData({
       }
     });
 
-    if (selectedLoan.marketName.startsWith('morpho_')) {
+    if (!selectedLoan.marketName.startsWith('proto_')) {
       void fetchInterestHistory(resolvedWallet, selectedLoan.id, 'loan').then((snapshots) => {
         if (cancelled) return;
         setLoanInterestHistory(snapshots);

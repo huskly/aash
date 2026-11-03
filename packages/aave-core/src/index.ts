@@ -59,7 +59,13 @@ export { buildLoanPositions, fetchFromAaveSubgraph } from './aave.js';
 
 export {
   fetchFromMorphoApi,
+  fetchMidnightLoans,
   fetchMorphoPositions,
+  isMidnightLoan,
+  midnightAccruedInterest,
+  buildMidnightLoans,
+  type RawMidnightMarket,
+  type RawMidnightPosition,
   type RawMorphoMarketPosition,
   type RawMorphoVaultPosition,
 } from './morpho.js';

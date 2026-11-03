@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   buildVariableBorrowCurve,
+  isMidnightLoan,
   type InterestRateCurvePoint,
   type LoanPosition,
   type ReserveTelemetry,
@@ -687,12 +688,15 @@ export function LoanPositionChartsCard({
   const [activeTab, setActiveTab] = useState<LoanChartTab>('model');
   const [windowValue, setWindowValue] = useState<HistoryWindow>('180d');
   const isMorphoLoan = selectedLoan?.marketName.startsWith('morpho_') ?? false;
+  const isFixedRateLoan = selectedLoan ? isMidnightLoan(selectedLoan) : false;
   const description =
     activeTab === 'model'
       ? 'Current utilization mapped against the market borrow APR curve.'
       : activeTab === 'borrowApr'
         ? 'Borrow APR sampled from reserve telemetry by the server and tracked over time.'
-        : 'Daily borrow interest accrued, derived from Morpho cumulative PnL.';
+        : isFixedRateLoan
+          ? 'Daily borrow interest, spread in equal daily amounts until maturity.'
+          : 'Daily borrow interest accrued, derived from Morpho cumulative PnL.';
 
   const primaryBorrow =
     selectedLoan?.borrowed.reduce<LoanPosition['borrowed'][number] | null>(
@@ -755,6 +759,13 @@ export function LoanPositionChartsCard({
       {activeTab === 'model' ? (
         reserveTelemetry ? (
           <UtilizationCurveContent reserve={reserveTelemetry} />
+        ) : isFixedRateLoan ? (
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Fixed-rate Midnight loan: the rate is locked until maturity, so there is no rate
+              model.
+            </p>
+          </CardContent>
         ) : isMorphoLoan && primaryBorrow ? (
           <MorphoIrmContent
             borrowRate={primaryBorrow.borrowRate}

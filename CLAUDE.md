@@ -15,6 +15,8 @@ yarn format:check  # prettier --check
 yarn test          # server watchdog/config tests (node:test via tsx)
 ```
 
+The repo uses Yarn 4 (pinned via `packageManager`, `nodeLinker: node-modules`); run `corepack enable` once (Node 25 needs `npm install -g corepack` first).
+
 Always run `typecheck`, `lint`, and `format` before finishing changes. Also make sure you check
 instructions in AGENTS.md if you haven't already.
 
@@ -67,6 +69,9 @@ Backend server notes:
 - Morpho positions are fetched from `https://api.morpho.org/graphql` in `packages/aave-core/src/morpho.ts`.
 - Morpho market borrow/supply APYs are normalized to Morpho's default interface view by preferring `state.avgBorrowApy` / `state.avgSupplyApy`; when those fields are unavailable, the app falls back to averaging the last 24 hours of `historicalState`, then finally to the current spot `state.borrowApy` / `state.supplyApy`.
 - `fetchFromMorphoApi()` still returns only Morpho market loans for server/watchdog compatibility; `fetchMorphoPositions()` returns both `marketLoans` and `vaultPositions` for the dashboard.
+- Morpho Midnight (fixed-rate, fixed-term) borrow positions are fetched by `fetchMidnightLoans()` in `packages/aave-core/src/morpho.ts` from `https://api.morpho.org/v0/midnight` (`/users/{wallet}/positions` and `/markets/{id}` for per-collateral LLTV), with token symbols/prices from the GraphQL `assets` query. The monitor and dashboard call it separately from `fetchMorphoPositions()`, so a Midnight API outage does not hide Blue positions (and vice versa).
+- Midnight loans use the market ID as loan ID and `midnight_<COLLATERAL>_<LOAN>_<YYYY-MM-DD maturity>` as market name; `isMidnightLoan()` detects them. `borrowed` is the debt owed at maturity (what Midnight's health check compares to max debt), `borrowRate` is the API `effective_apr` (simple APR, not APY), and `accruedBorrowInterestUsd` spreads `debt - cost_basis / 1e18` linearly from position `created_at` to `maturity` (equal daily amounts). This feeds interest snapshots and the Daily Interest charts like Blue loans.
+- Midnight caveats: lend positions are ignored; a roll into a new maturity is a new market ID (new loan row and interest history); adding to an existing position later spreads the average-cost interest from the original `created_at`; the watchdog skips Midnight loans (no `morphoMarketParams`, rescue contracts only support Aave/Blue); no rate model chart.
 - Morpho positions use API-provided USD prices (no CoinGecko dependency).
 - Aave pricing uses the `COINGECKO_IDS_BY_SYMBOL` alias map in `packages/aave-core/src/constants.ts`; add wrapped/alias symbols there when Aave reserve symbols differ from CoinGecko slugs (for example `cbBTC` -> `coinbase-wrapped-btc`).
 - Monitor logs normalize reserve symbols before checking the CoinGecko price map, and per-loan collateral log lines use each asset's resolved `usdPrice` so mixed-case symbols such as `cbBTC` / `wstETH` do not appear as `$MISSING` when pricing succeeded.

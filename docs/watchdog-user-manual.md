@@ -83,6 +83,10 @@ Live mode requires:
 - monitored wallet has debt token balance (e.g. USDC)
 - monitored wallet has approved `rescueContract` to pull the debt token
 
+### Morpho Midnight loans
+
+The watchdog does not rescue Morpho Midnight fixed-rate loans. The rescue contracts repay Aave or Morpho Blue debt only. Midnight loans still get health-factor zone alerts and Telegram `/status` rows.
+
 ### Morpho Blue rescue
 
 Live mode additionally requires:

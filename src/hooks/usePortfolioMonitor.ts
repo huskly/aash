@@ -3,6 +3,7 @@ import {
   buildLoanPositions,
   ETHEREUM_ADDRESS_REGEX,
   fetchFromAaveSubgraph,
+  fetchMidnightLoans,
   fetchMorphoPositions,
   fetchUsdPrices,
   type FetchState,
@@ -100,16 +101,21 @@ export function usePortfolioMonitor(): UsePortfolioMonitorResult {
     setIsLoading(true);
 
     try {
-      const [reserves, morpho] = await Promise.all([
+      const [reserves, morpho, midnightLoans] = await Promise.all([
         fetchFromAaveSubgraph(normalizedWallet, GRAPH_API_KEY),
         fetchMorphoPositions(normalizedWallet).catch(() => ({
           marketLoans: [],
           vaultPositions: [],
         })),
+        fetchMidnightLoans(normalizedWallet).catch(() => []),
       ]);
       const reserveSymbols = Array.from(new Set(reserves.map((entry) => entry.reserve.symbol)));
       const prices = await fetchUsdPrices(reserveSymbols, COINGECKO_API_KEY);
-      const loans = [...buildLoanPositions(reserves, prices), ...morpho.marketLoans];
+      const loans = [
+        ...buildLoanPositions(reserves, prices),
+        ...morpho.marketLoans,
+        ...midnightLoans,
+      ];
       const borrowedAssets = Array.from(
         new Map(
           loans

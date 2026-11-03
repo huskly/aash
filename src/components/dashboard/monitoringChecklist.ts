@@ -1,4 +1,9 @@
-import type { Computed, LoanPosition, ReserveTelemetry } from '@aave-monitor/core';
+import {
+  isMidnightLoan,
+  type Computed,
+  type LoanPosition,
+  type ReserveTelemetry,
+} from '@aave-monitor/core';
 import type { BorrowRateSample } from '../ReserveCharts';
 import type { WatchdogConfigState } from '../../hooks/useWatchdogConfig';
 import { fmtPct } from '../../lib/formatters';
@@ -103,7 +108,7 @@ export function evaluateOracleMarket(
   telemetry: ReserveTelemetry | null,
   loan: LoanPosition | null,
 ): ChecklistStatus {
-  if (loan?.morphoMarketParams) {
+  if (loan && !loan.marketName.startsWith('proto_')) {
     return { state: 'unknown', detail: 'Telemetry not available for Morpho markets' };
   }
   if (!telemetry) {
@@ -135,6 +140,9 @@ export function evaluateAutomation(
   }
   if (!watchdog.enabled) {
     return { state: 'watch', detail: 'Watchdog disabled' };
+  }
+  if (loan && isMidnightLoan(loan)) {
+    return { state: 'watch', detail: 'Watchdog does not cover Midnight fixed-rate loans' };
   }
   const isMorpho = !!loan?.morphoMarketParams;
   const rescue = isMorpho ? watchdog.morphoRescueContract : watchdog.rescueContract;

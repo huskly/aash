@@ -486,6 +486,229 @@ function dedupeMorphoVaultPositions(vaults: MorphoVaultPosition[]): MorphoVaultP
   return Array.from(byAddress.values());
 }
 
+const MIDNIGHT_API_URL = 'https://api.morpho.org/v0/midnight';
+const WAD = 10n ** 18n;
+
+export type RawMidnightPosition = {
+  chain_id: number;
+  market_id: string;
+  created_at: number;
+  loan_token: string;
+  maturity: number;
+  type: 'lend' | 'borrow' | 'collateral_only';
+  /** Units owed at maturity, in loan-token base units. */
+  debt: string;
+  /** WAD-scaled loan-token base units received when the debt was opened. */
+  cost_basis: string | null;
+  effective_apr: number | null;
+  collaterals: Array<{ token: string; amount: string }>;
+};
+
+export type RawMidnightMarket = {
+  market_id: string;
+  collaterals: Array<{ token: string; lltv: string; oracle: string }>;
+};
+
+type MidnightPage<T> = { cursor: string | null; data: T[] };
+
+type MorphoAssetsResponse = {
+  data?: { assets?: { items: MorphoAsset[] } };
+  errors?: Array<{ message: string }>;
+};
+
+const MORPHO_ASSETS_QUERY = `
+  query Assets($addresses: [String!], $chainId: Int!) {
+    assets(where: { address_in: $addresses, chainId_in: [$chainId] }) {
+      items {
+        symbol
+        address
+        decimals
+        price {
+          usd
+        }
+      }
+    }
+  }
+`;
+
+async function fetchMidnightJson<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+  const query = new URLSearchParams(params).toString();
+  const response = await fetch(`${MIDNIGHT_API_URL}${path}${query ? `?${query}` : ''}`);
+  if (!response.ok) {
+    throw new Error(`Morpho Midnight API returned ${response.status}`);
+  }
+  return (await response.json()) as T;
+}
+
+async function fetchMorphoAssets(addresses: string[], chainId: number): Promise<MorphoAsset[]> {
+  if (addresses.length === 0) return [];
+  const response = await fetch(MORPHO_API_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ query: MORPHO_ASSETS_QUERY, variables: { addresses, chainId } }),
+  });
+  if (!response.ok) {
+    throw new Error(`Morpho API returned ${response.status}`);
+  }
+  const payload = (await response.json()) as MorphoAssetsResponse;
+  if (payload.errors?.length) {
+    throw new Error(`Morpho API error: ${payload.errors[0]?.message ?? 'unknown'}`);
+  }
+  return payload.data?.assets?.items ?? [];
+}
+
+function maturityDate(maturity: number): string {
+  return new Date(maturity * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * Midnight borrows are fixed-rate: the loan owes `debt` at maturity, and the
+ * interest (`debt` minus the principal received) is spread in equal daily
+ * amounts from when the position was opened until maturity.
+ */
+export function midnightAccruedInterest(pos: RawMidnightPosition, nowMs: number): number {
+  const debt = BigInt(pos.debt);
+  const principal = pos.cost_basis ? BigInt(pos.cost_basis) / WAD : debt;
+  const totalInterest = Number(debt - principal);
+  const termSeconds = pos.maturity - pos.created_at;
+  if (totalInterest <= 0 || termSeconds <= 0) return Math.max(0, totalInterest);
+  const elapsedFraction = Math.min(1, Math.max(0, (nowMs / 1000 - pos.created_at) / termSeconds));
+  return totalInterest * elapsedFraction;
+}
+
+export function buildMidnightLoans(
+  positions: RawMidnightPosition[],
+  markets: Map<string, RawMidnightMarket>,
+  assets: Map<string, MorphoAsset>,
+  nowMs: number,
+): LoanPosition[] {
+  return positions.flatMap((pos): LoanPosition[] => {
+    if (pos.type === 'lend') return [];
+    const loanAsset = assets.get(pos.loan_token.toLowerCase());
+    const market = markets.get(pos.market_id.toLowerCase());
+    if (!loanAsset || !market) return [];
+
+    const supplied = pos.collaterals.flatMap((entry): AssetPosition[] => {
+      const asset = assets.get(entry.token.toLowerCase());
+      const params = market.collaterals.find(
+        (c) => c.token.toLowerCase() === entry.token.toLowerCase(),
+      );
+      if (!asset || !params) return [];
+      const amount = parseAmount(entry.amount, asset.decimals);
+      if (amount <= 0) return [];
+      const lltv = fromWad(params.lltv);
+      const { usdPrice, usdValue } = resolveUsd(asset, amount, null);
+      return [
+        {
+          symbol: asset.symbol.toUpperCase(),
+          address: asset.address.toLowerCase(),
+          decimals: asset.decimals,
+          amount,
+          usdPrice,
+          usdValue,
+          collateralEnabled: true,
+          maxLTV: lltv,
+          liqThreshold: lltv,
+          supplyRate: 0,
+          borrowRate: 0,
+        },
+      ];
+    });
+
+    // Debt is the amount owed at maturity, which is what Midnight's health check uses.
+    const debtAmount = parseAmount(pos.debt, loanAsset.decimals);
+    const { usdPrice: loanUsdPrice, usdValue: debtUsd } = resolveUsd(loanAsset, debtAmount, null);
+    const borrowed: AssetPosition[] =
+      debtAmount > 0
+        ? [
+            {
+              symbol: loanAsset.symbol.toUpperCase(),
+              address: loanAsset.address.toLowerCase(),
+              decimals: loanAsset.decimals,
+              amount: debtAmount,
+              usdPrice: loanUsdPrice,
+              usdValue: debtUsd,
+              collateralEnabled: false,
+              maxLTV: 0,
+              liqThreshold: 0,
+              supplyRate: 0,
+              borrowRate: pos.effective_apr ?? 0,
+            },
+          ]
+        : [];
+
+    const totalSuppliedUsd = supplied.reduce((sum, a) => sum + a.usdValue, 0);
+    if (totalSuppliedUsd < MIN_POSITION_USD && debtUsd < MIN_POSITION_USD) return [];
+
+    const accruedInterest = parseAmount(
+      BigInt(Math.round(midnightAccruedInterest(pos, nowMs))).toString(),
+      loanAsset.decimals,
+    );
+    const collateralSymbol = supplied.map((a) => a.symbol).join('+') || '?';
+
+    return [
+      {
+        id: pos.market_id.toLowerCase(),
+        marketName: `midnight_${collateralSymbol}_${loanAsset.symbol.toUpperCase()}_${maturityDate(pos.maturity)}`,
+        borrowed,
+        supplied,
+        totalSuppliedUsd,
+        totalBorrowedUsd: debtUsd,
+        accruedBorrowInterestUsd: debtAmount > 0 ? accruedInterest * loanUsdPrice : undefined,
+      },
+    ];
+  });
+}
+
+export async function fetchMidnightLoans(
+  wallet: string,
+  chainId: number = 1,
+): Promise<LoanPosition[]> {
+  const positions: RawMidnightPosition[] = [];
+  let cursor: string | null = null;
+  do {
+    const page: MidnightPage<RawMidnightPosition> = await fetchMidnightJson(
+      `/users/${wallet.toLowerCase()}/positions`,
+      { chain_ids: String(chainId), ...(cursor ? { cursor } : {}) },
+    );
+    positions.push(...page.data);
+    cursor = page.cursor;
+  } while (cursor);
+
+  const borrowPositions = positions.filter((pos) => pos.type !== 'lend');
+  if (borrowPositions.length === 0) return [];
+
+  const marketIds = Array.from(new Set(borrowPositions.map((pos) => pos.market_id.toLowerCase())));
+  const tokenAddresses = Array.from(
+    new Set(
+      borrowPositions.flatMap((pos) => [
+        pos.loan_token.toLowerCase(),
+        ...pos.collaterals.map((c) => c.token.toLowerCase()),
+      ]),
+    ),
+  );
+
+  const [marketList, assetList] = await Promise.all([
+    Promise.all(
+      marketIds.map((id) =>
+        fetchMidnightJson<{ data: RawMidnightMarket }>(`/markets/${id}`).then((r) => r.data),
+      ),
+    ),
+    fetchMorphoAssets(tokenAddresses, chainId),
+  ]);
+
+  return buildMidnightLoans(
+    borrowPositions,
+    new Map(marketList.map((m) => [m.market_id.toLowerCase(), m])),
+    new Map(assetList.map((a) => [a.address.toLowerCase(), a])),
+    Date.now(),
+  );
+}
+
+export function isMidnightLoan(loan: LoanPosition): boolean {
+  return loan.marketName.startsWith('midnight_');
+}
+
 async function fetchAverageMarketApys(
   marketIds: string[],
   chainId: number,
