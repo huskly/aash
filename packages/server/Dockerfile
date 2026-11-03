@@ -1,4 +1,4 @@
-FROM node:25-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
@@ -15,7 +15,7 @@ COPY packages/server/ packages/server/
 RUN yarn workspace @aave-monitor/core run build
 RUN yarn workspace @aave-monitor/server run build
 
-FROM node:25-alpine
+FROM node:26-alpine
 
 WORKDIR /app
 COPY --from=builder /app/package.json /app/yarn.lock ./
