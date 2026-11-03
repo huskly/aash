@@ -17,6 +17,8 @@ yarn test          # server watchdog/config tests (node:test via tsx)
 
 The repo uses Yarn 4 (pinned via `packageManager`, `nodeLinker: node-modules`); run `corepack enable` once (Node 25 needs `npm install -g corepack` first).
 
+The root `typescript` dependency is aliased to `@typescript/typescript6` because `typescript-eslint` does not support TypeScript 7 yet; TypeScript 7 is installed as `@typescript/native` and provides `tsc` (workspaces depend on `typescript` 7 directly). `better-sqlite3` is marked `built: false` in `dependenciesMeta` so Yarn uses its bundled prebuilds instead of compiling (the Alpine Docker image has no build toolchain).
+
 Always run `typecheck`, `lint`, and `format` before finishing changes. Also make sure you check
 instructions in AGENTS.md if you haven't already.
 
