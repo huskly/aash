@@ -31,6 +31,7 @@ export default function App() {
     result,
     walletBorrowedAssetBalances,
     portfolioHistory,
+    portfolioHealthFactorHistory,
     portfolioBorrowRateHistory,
     portfolioBorrowInterestHistory,
     now,
@@ -50,6 +51,7 @@ export default function App() {
     selectedReserveTelemetry,
     reserveTelemetryError,
     borrowRateHistory,
+    healthFactorHistory,
     loanInterestHistory,
     vaultInterestHistories,
     vaultRateHistory,
@@ -144,6 +146,7 @@ export default function App() {
                     <PortfolioHistoryCard
                       hideSensitiveValues={hideSensitiveValues}
                       samples={portfolioHistory}
+                      healthFactorSamples={portfolioHealthFactorHistory}
                       borrowRateSamples={portfolioBorrowRateHistory}
                       borrowInterestSnapshots={portfolioBorrowInterestHistory}
                       borrowPositionCount={result.loans.length}
@@ -197,6 +200,7 @@ export default function App() {
                       <PositionDetailsSection
                         hideSensitiveValues={hideSensitiveValues}
                         borrowRateHistory={borrowRateHistory}
+                        healthFactorHistory={healthFactorHistory}
                         loanInterestHistory={loanInterestHistory}
                         computed={computed}
                         now={now}

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Monitor, type BorrowRateAlertState } from '../src/monitor.js';
 import { logger } from '../src/logger.js';
+import { RateHistoryDb } from '../src/rateHistoryDb.js';
 import type { AlertConfig } from '../src/storage.js';
 import type { TelegramClient } from '../src/telegram.js';
 
@@ -867,5 +868,33 @@ test('borrow rate alert: wallet disable cleans up borrow rate states', async () 
     assert.equal(states.size, 0);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('monitor records a health factor sample for each loan', async () => {
+  const rateHistoryDb = new RateHistoryDb(':memory:');
+  const monitor = new Monitor(
+    createTelegramStub(),
+    createConfig,
+    undefined,
+    undefined,
+    RPC_URL,
+    undefined,
+    rateHistoryDb,
+    stubTelemetryFetcher,
+  );
+  stubWatchdogEvaluate(monitor);
+
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = mockFetchForMorphoBorrowApy(0.03);
+    await pollMonitor(monitor, false);
+
+    const samples = rateHistoryDb.queryPortfolioHealthFactor(WALLET);
+    assert.equal(samples.length, 1);
+    assert.ok(Math.abs(samples[0]!.healthFactor - (2000 * 0.8) / 500) < 1e-6);
+  } finally {
+    globalThis.fetch = originalFetch;
+    rateHistoryDb.close();
   }
 });

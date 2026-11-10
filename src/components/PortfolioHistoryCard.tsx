@@ -18,14 +18,15 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Stat } from './Stat';
 import { fmtUsd } from './chartFormat';
-import type { InterestSnapshot, PortfolioSnapshot } from '../api/aaveMonitor';
+import type { HealthFactorSample, InterestSnapshot, PortfolioSnapshot } from '../api/aaveMonitor';
+import { HealthFactorHistoryChart } from './HealthFactorHistoryChart';
 import { SensitiveBlock, SensitiveValue } from './dashboard/privacy';
 import type { BorrowRateSample } from './ReserveCharts';
 import { buildBorrowRateMovingAveragePoints } from '../lib/portfolioBorrowRateHistory';
 import { buildBorrowInterestMovingAveragePoints } from '../lib/portfolioInterestHistory';
 
 type HistoryWindow = '24h' | '7d' | '30d' | '90d' | '180d';
-type HistoryTab = 'portfolio' | 'borrowApr' | 'borrowInterest';
+type HistoryTab = 'portfolio' | 'healthFactor' | 'borrowApr' | 'borrowInterest';
 
 const HISTORY_WINDOWS: Array<{ value: HistoryWindow; label: string; durationMs: number }> = [
   { value: '24h', label: '24h', durationMs: 24 * 60 * 60 * 1000 },
@@ -59,6 +60,7 @@ function fmtPct(value: number, digits = 2): string {
 export function PortfolioHistoryCard({
   hideSensitiveValues,
   samples,
+  healthFactorSamples,
   borrowRateSamples,
   borrowInterestSnapshots,
   borrowPositionCount,
@@ -66,6 +68,7 @@ export function PortfolioHistoryCard({
 }: {
   hideSensitiveValues: boolean;
   samples: PortfolioSnapshot[];
+  healthFactorSamples: HealthFactorSample[];
   borrowRateSamples: BorrowRateSample[];
   borrowInterestSnapshots: InterestSnapshot[];
   borrowPositionCount: number;
@@ -74,12 +77,14 @@ export function PortfolioHistoryCard({
   const [windowValue, setWindowValue] = useState<HistoryWindow>('30d');
   const [activeTab, setActiveTab] = useState<HistoryTab>('portfolio');
 
-  const filtered = useMemo(() => {
-    const selected = HISTORY_WINDOWS.find((entry) => entry.value === windowValue);
-    if (!selected) return samples;
-    const cutoff = currentTimeMs - selected.durationMs;
-    return samples.filter((s) => s.timestamp >= cutoff);
-  }, [currentTimeMs, samples, windowValue]);
+  const windowCutoffMs =
+    currentTimeMs -
+    (HISTORY_WINDOWS.find((entry) => entry.value === windowValue)?.durationMs ?? Infinity);
+
+  const filtered = useMemo(
+    () => samples.filter((s) => s.timestamp >= windowCutoffMs),
+    [samples, windowCutoffMs],
+  );
 
   const { data, maxValue, latest } = useMemo(() => {
     if (filtered.length === 0) {
@@ -205,9 +210,11 @@ export function PortfolioHistoryCard({
   const description =
     activeTab === 'portfolio'
       ? 'Total assets and total debt snapshotted on each poll.'
-      : activeTab === 'borrowApr'
-        ? 'Debt-weighted borrow APR history combined across all open loan positions.'
-        : 'Daily borrow interest aggregated across all open loan positions.';
+      : activeTab === 'healthFactor'
+        ? 'Average health factor across loan positions, sampled hourly.'
+        : activeTab === 'borrowApr'
+          ? 'Debt-weighted borrow APR history combined across all open loan positions.'
+          : 'Daily borrow interest aggregated across all open loan positions.';
 
   return (
     <Card>
@@ -225,6 +232,14 @@ export function PortfolioHistoryCard({
               onClick={() => setActiveTab('portfolio')}
             >
               Assets & Debt
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={activeTab === 'healthFactor' ? 'default' : 'ghost'}
+              onClick={() => setActiveTab('healthFactor')}
+            >
+              Health Factor
             </Button>
             <Button
               type="button"
@@ -393,6 +408,13 @@ export function PortfolioHistoryCard({
           <div className="rounded-lg border border-border bg-accent px-4 py-5 text-sm text-muted-foreground">
             No portfolio history yet — data accrues on each poll.
           </div>
+        ) : activeTab === 'healthFactor' ? (
+          <HealthFactorHistoryChart
+            samples={healthFactorSamples}
+            cutoffMs={windowCutoffMs}
+            statLabel="Latest Avg HF"
+            emptyMessage="Health factor history needs at least two samples from loan positions. Keep the server running so samples can accrue on monitor polls."
+          />
         ) : activeTab === 'borrowApr' && borrowRateData.length >= 2 ? (
           <>
             <div className="grid gap-1 sm:grid-cols-3">

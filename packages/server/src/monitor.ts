@@ -357,6 +357,16 @@ export class Monitor {
           } catch (err) {
             logger.warn({ err, loan: loan.id }, 'Failed to record rate sample');
           }
+          try {
+            this.rateHistoryDb.appendHealthFactorSample(
+              address,
+              loan.id,
+              now,
+              metrics.healthFactor,
+            );
+          } catch (err) {
+            logger.warn({ err, loan: loan.id }, 'Failed to record health factor sample');
+          }
         }
       }
 

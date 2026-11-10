@@ -12,9 +12,11 @@ import {
 } from '@aave-monitor/core';
 import {
   fetchBorrowRateHistory,
+  fetchPortfolioHealthFactorHistory,
   fetchPortfolioHistory,
   fetchPortfolioInterestHistories,
   fetchWalletAssetBalances,
+  type HealthFactorSample,
   type InterestSnapshot,
   type PortfolioSnapshot,
 } from '../api/aaveMonitor';
@@ -52,6 +54,7 @@ type UsePortfolioMonitorResult = {
   result: FetchState | null;
   walletBorrowedAssetBalances: Map<string, number>;
   portfolioHistory: PortfolioSnapshot[];
+  portfolioHealthFactorHistory: HealthFactorSample[];
   portfolioBorrowRateHistory: BorrowRateSample[];
   portfolioBorrowInterestHistory: InterestSnapshot[];
   now: number;
@@ -76,6 +79,9 @@ export function usePortfolioMonitor(): UsePortfolioMonitorResult {
     Map<string, number>
   >(new Map());
   const [portfolioHistory, setPortfolioHistory] = useState<PortfolioSnapshot[]>([]);
+  const [portfolioHealthFactorHistory, setPortfolioHealthFactorHistory] = useState<
+    HealthFactorSample[]
+  >([]);
   const [portfolioBorrowRateHistory, setPortfolioBorrowRateHistory] = useState<BorrowRateSample[]>(
     [],
   );
@@ -234,12 +240,17 @@ export function usePortfolioMonitor(): UsePortfolioMonitorResult {
     const resolvedWallet = result?.wallet;
     if (!resolvedWallet) {
       setPortfolioHistory([]); // eslint-disable-line react-hooks/set-state-in-effect
+      setPortfolioHealthFactorHistory([]);
       return;
     }
     let cancelled = false;
     void fetchPortfolioHistory(resolvedWallet, undefined, undefined, 'day').then((samples) => {
       if (cancelled) return;
       setPortfolioHistory(samples);
+    });
+    void fetchPortfolioHealthFactorHistory(resolvedWallet).then((samples) => {
+      if (cancelled) return;
+      setPortfolioHealthFactorHistory(samples);
     });
     return () => {
       cancelled = true;
@@ -310,6 +321,7 @@ export function usePortfolioMonitor(): UsePortfolioMonitorResult {
     result,
     walletBorrowedAssetBalances,
     portfolioHistory,
+    portfolioHealthFactorHistory,
     portfolioBorrowRateHistory,
     portfolioBorrowInterestHistory,
     now,

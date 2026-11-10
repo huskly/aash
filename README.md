@@ -65,6 +65,7 @@
   - Separate Morpho vault table with deposited asset amount, USD value, net APY, and shares
   - Aave interest-rate model chart for the selected borrowed asset, including current utilization and the reserve kink
   - Borrow APR history chart for the selected borrowed asset, tracked server-side with 180-day retention
+  - Health factor history for the portfolio (hourly average of loan HFs, matching the summary card's average HF) and for the selected loan, with the 2.2 / 1.8 / 1.5 band thresholds drawn as reference lines
   - Top-level portfolio history tabs for asset/debt snapshots, debt-weighted Borrow APR history with a 7-day moving average, and combined daily borrow interest with a 7-day moving average across all open loan positions
   - Repay coverage based on wallet balances that match borrowed assets
   - Monitoring checklist + sensitivity cards
@@ -144,6 +145,7 @@ yarn lint          # ESLint
 yarn format        # Prettier format
 yarn test          # Server watchdog/config test suite
 yarn test:contracts # Foundry smart contract tests (packages/rescue-contract)
+yarn workspace @aave-monitor/server backfill:health-factor <wallet>  # one-time Morpho Blue HF backfill (see below)
 yarn build         # production frontend build
 yarn build:server  # production server build (includes @aave-monitor/core via TS project references)
 yarn preview       # preview production build
@@ -242,10 +244,26 @@ The watchdog monitors loan health and can execute an atomic on-chain rescue when
 6. Detailed risk metrics are computed and rendered for the selected loan, while Morpho vaults render in a separate table.
 7. The backend monitor records borrow/supply rate samples to a SQLite database (`packages/server/data/rates.db`) every 15 minutes during its poll cycle. The dashboard fetches rate history from the `/api/rates/history` endpoint, including the top-level combined Borrow APR tab that debt-weights samples across all open loan positions and overlays a trailing 7-day simple moving average; it falls back to browser `localStorage` when the backend has no data yet. Morpho borrow interest snapshots are served from `/api/interest/history` and aggregated into the top-level Daily Interest tab with a trailing 7-day simple moving average.
 
+### Health factor backfill
+
+The monitor records each loan's health factor every 15 minutes. To fill in history from before that, run the one-time backfill. It needs an archive RPC (for example an Alchemy key). It writes one sample per day for the last 180 days into the same SQLite table:
+
+```bash
+ARCHIVE_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/<key> \
+  yarn workspace @aave-monitor/server backfill:health-factor <wallet> [--days 180] [--db <path>]
+# In the production container (compiled build):
+ARCHIVE_RPC_URL=... node dist/scripts/backfillHealthFactor.js <wallet>
+```
+
+- Covers Morpho Blue loans only, including closed ones. Markets come from the wallet's Morpho API transaction history.
+- HF is computed from archive state the way Morpho checks liquidation: collateral at the market oracle price × LLTV / borrow assets. It can differ slightly from the live dashboard value, which uses API/CoinGecko USD prices. Interest accrued since the market's last on-chain update is ignored.
+- Re-running is safe (duplicate samples are ignored). Aave and Midnight loans are not backfilled.
+- Free-tier Alchemy throttles bursts, so reads are sequential with retries. A 180-day run for three markets takes about 1.5 minutes.
+
 ## Limitations
 
 - Liquidation price is shown as a primary-collateral approximation for multi-collateral positions.
 - Coverage depends on the supported market list and indexer availability.
 - Metrics are simplified monitoring estimates, not a substitute for protocol-native risk engines.
-- Borrow APR and daily borrow-interest history are forward-looking: the server begins recording from the first poll after deployment, so newly monitored wallets start with empty charts.
+- Borrow APR, daily borrow-interest, and health factor history are forward-looking (health factor history can be backfilled for Morpho Blue loans, see above): the server begins recording from the first poll after deployment, so newly monitored wallets start with empty charts.
 - GitHub Pages deployments require proper repository secrets if API keys are needed at build time.
