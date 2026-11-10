@@ -363,6 +363,7 @@ export class Monitor {
               loan.id,
               now,
               metrics.healthFactor,
+              metrics.debt,
             );
           } catch (err) {
             logger.warn({ err, loan: loan.id }, 'Failed to record health factor sample');

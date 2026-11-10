@@ -211,7 +211,7 @@ export function PortfolioHistoryCard({
     activeTab === 'portfolio'
       ? 'Total assets and total debt snapshotted on each poll.'
       : activeTab === 'healthFactor'
-        ? 'Average health factor across loan positions, sampled hourly.'
+        ? 'Debt-weighted health factor across loan positions, sampled hourly.'
         : activeTab === 'borrowApr'
           ? 'Debt-weighted borrow APR history combined across all open loan positions.'
           : 'Daily borrow interest aggregated across all open loan positions.';
@@ -412,7 +412,7 @@ export function PortfolioHistoryCard({
           <HealthFactorHistoryChart
             samples={healthFactorSamples}
             cutoffMs={windowCutoffMs}
-            statLabel="Latest Avg HF"
+            statLabel="Latest Weighted HF"
             emptyMessage="Health factor history needs at least two samples from loan positions. Keep the server running so samples can accrue on monitor polls."
           />
         ) : activeTab === 'borrowApr' && borrowRateData.length >= 2 ? (

@@ -213,10 +213,10 @@ test('prune removes portfolio snapshots older than maxAge', () => {
 
 test('health factor samples round-trip per position and skip infinite values', () => {
   const db = createDb();
-  db.appendHealthFactorSample('0xABC', 'loan-1', 1000, 1.8);
-  db.appendHealthFactorSample('0xabc', 'loan-1', 2000, 1.7);
-  db.appendHealthFactorSample('0xabc', 'loan-1', 3000, Infinity);
-  db.appendHealthFactorSample('0xabc', 'loan-2', 1000, 2.5);
+  db.appendHealthFactorSample('0xABC', 'loan-1', 1000, 1.8, 100);
+  db.appendHealthFactorSample('0xabc', 'loan-1', 2000, 1.7, 100);
+  db.appendHealthFactorSample('0xabc', 'loan-1', 3000, Infinity, 0);
+  db.appendHealthFactorSample('0xabc', 'loan-2', 1000, 2.5, 100);
 
   assert.deepEqual(db.queryHealthFactorSamples('0xAbC', 'loan-1'), [
     { timestamp: 1000, healthFactor: 1.8 },
@@ -228,19 +228,46 @@ test('health factor samples round-trip per position and skip infinite values', (
   db.close();
 });
 
-test('portfolio health factor averages each loan latest sample per hour', () => {
+test('re-appending a health factor sample overwrites it', () => {
+  const db = createDb();
+  db.appendHealthFactorSample('0xabc', 'loan-1', 1000, 1.8, 100);
+  db.appendHealthFactorSample('0xabc', 'loan-1', 1000, 1.9, 200);
+
+  assert.deepEqual(db.queryHealthFactorSamples('0xabc', 'loan-1'), [
+    { timestamp: 1000, healthFactor: 1.9 },
+  ]);
+  db.close();
+});
+
+test('portfolio health factor debt-weights each loan latest sample per hour', () => {
   const db = createDb();
   const hour = 60 * 60 * 1000;
-  db.appendHealthFactorSample('0xabc', 'loan-1', 1000, 1.5);
-  db.appendHealthFactorSample('0xabc', 'loan-1', 2000, 1.6);
-  db.appendHealthFactorSample('0xabc', 'loan-2', 1500, 2.4);
-  db.appendHealthFactorSample('0xabc', 'loan-2', hour + 1000, 2.2);
+  db.appendHealthFactorSample('0xabc', 'loan-1', 1000, 1.5, 100);
+  db.appendHealthFactorSample('0xabc', 'loan-1', 2000, 1.6, 100);
+  db.appendHealthFactorSample('0xabc', 'loan-2', 1500, 2.4, 300);
+  db.appendHealthFactorSample('0xabc', 'loan-2', hour + 1000, 2.2, 300);
 
   const samples = db.queryPortfolioHealthFactor('0xabc');
   assert.equal(samples.length, 2);
   assert.equal(samples[0].timestamp, 2000);
-  assert.ok(Math.abs(samples[0].healthFactor - 2.0) < 1e-9);
+  assert.ok(Math.abs(samples[0].healthFactor - (1.6 * 100 + 2.4 * 300) / 400) < 1e-9);
   assert.deepEqual(samples[1], { timestamp: hour + 1000, healthFactor: 2.2 });
+  db.close();
+});
+
+test('portfolio health factor skips samples without recorded debt', () => {
+  const db = new RateHistoryDb(':memory:');
+  // Simulate a row written before the debt_usd column existed.
+  (db as unknown as { db: { prepare: (sql: string) => { run: () => void } } }).db
+    .prepare(
+      "INSERT INTO health_factor_samples (wallet, position_id, timestamp, health_factor) VALUES ('0xabc', 'loan-1', 1000, 1.2)",
+    )
+    .run();
+  db.appendHealthFactorSample('0xabc', 'loan-2', 1500, 2.0, 100);
+
+  assert.deepEqual(db.queryPortfolioHealthFactor('0xabc'), [
+    { timestamp: 1500, healthFactor: 2.0 },
+  ]);
   db.close();
 });
 
@@ -248,8 +275,8 @@ test('prune removes old health factor samples', () => {
   const db = createDb();
   const now = Date.now();
   const oneDay = 24 * 60 * 60 * 1000;
-  db.appendHealthFactorSample('0xabc', 'loan-1', now - 10 * oneDay, 1.8);
-  db.appendHealthFactorSample('0xabc', 'loan-1', now - oneDay, 1.9);
+  db.appendHealthFactorSample('0xabc', 'loan-1', now - 10 * oneDay, 1.8, 100);
+  db.appendHealthFactorSample('0xabc', 'loan-1', now - oneDay, 1.9, 100);
 
   assert.equal(db.prune(7 * oneDay), 1);
   assert.equal(db.queryHealthFactorSamples('0xabc', 'loan-1').length, 1);

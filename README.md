@@ -65,7 +65,7 @@
   - Separate Morpho vault table with deposited asset amount, USD value, net APY, and shares
   - Aave interest-rate model chart for the selected borrowed asset, including current utilization and the reserve kink
   - Borrow APR history chart for the selected borrowed asset, tracked server-side with 180-day retention
-  - Health factor history for the portfolio (hourly average of loan HFs, matching the summary card's average HF) and for the selected loan, with the 2.2 / 1.8 / 1.5 band thresholds drawn as reference lines
+  - Health factor history for the portfolio (hourly debt-weighted average of loan HFs; the summary card's average HF is still a plain average) and for the selected loan, with the 2.2 / 1.8 / 1.5 band thresholds drawn as reference lines
   - Top-level portfolio history tabs for asset/debt snapshots, debt-weighted Borrow APR history with a 7-day moving average, and combined daily borrow interest with a 7-day moving average across all open loan positions
   - Repay coverage based on wallet balances that match borrowed assets
   - Monitoring checklist + sensitivity cards
@@ -255,9 +255,11 @@ ARCHIVE_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/<key> \
 ARCHIVE_RPC_URL=... node dist/scripts/backfillHealthFactor.js <wallet>
 ```
 
-- Covers Morpho Blue loans only, including closed ones. Markets come from the wallet's Morpho API transaction history.
-- HF is computed from archive state the way Morpho checks liquidation: collateral at the market oracle price × LLTV / borrow assets. It can differ slightly from the live dashboard value, which uses API/CoinGecko USD prices. Interest accrued since the market's last on-chain update is ignored.
-- Re-running is safe (duplicate samples are ignored). Aave and Midnight loans are not backfilled.
+- Covers Morpho Blue and Morpho Midnight loans, including closed ones. Markets come from the wallet's Morpho API (Blue) and Midnight API transaction histories.
+- HF is computed from archive state the way Morpho checks liquidation: collateral at the market oracle price × LLTV / debt. For Midnight, debt is the amount owed at maturity, and every enabled collateral counts.
+- Each sample also stores debt in USD, used to weight the portfolio HF. Backfilled debt USD uses today's loan-asset price. It can differ slightly from the live dashboard value, which uses API/CoinGecko USD prices. Interest accrued since the market's last on-chain update is ignored.
+- Re-running is safe: sample blocks are fixed multiples of 7200 (about one day), so a re-run overwrites its earlier samples. Aave loans are not backfilled.
+- Samples written before debt was stored are left out of the portfolio average until the backfill is re-run (live samples from that window stay in the per-loan charts).
 - Free-tier Alchemy throttles bursts, so reads are sequential with retries. A 180-day run for three markets takes about 1.5 minutes.
 
 ## Limitations
@@ -265,5 +267,5 @@ ARCHIVE_RPC_URL=... node dist/scripts/backfillHealthFactor.js <wallet>
 - Liquidation price is shown as a primary-collateral approximation for multi-collateral positions.
 - Coverage depends on the supported market list and indexer availability.
 - Metrics are simplified monitoring estimates, not a substitute for protocol-native risk engines.
-- Borrow APR, daily borrow-interest, and health factor history are forward-looking (health factor history can be backfilled for Morpho Blue loans, see above): the server begins recording from the first poll after deployment, so newly monitored wallets start with empty charts.
+- Borrow APR, daily borrow-interest, and health factor history are forward-looking (health factor history can be backfilled for Morpho Blue and Midnight loans, see above): the server begins recording from the first poll after deployment, so newly monitored wallets start with empty charts.
 - GitHub Pages deployments require proper repository secrets if API keys are needed at build time.
