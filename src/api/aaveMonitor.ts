@@ -87,6 +87,35 @@ export async function fetchPortfolioHistory(
   return data.samples;
 }
 
+export type HealthFactorSample = {
+  timestamp: number;
+  healthFactor: number;
+};
+
+export async function fetchHealthFactorHistory(
+  wallet: string,
+  positionId: string,
+): Promise<HealthFactorSample[]> {
+  const params = new URLSearchParams({ wallet, positionId });
+  const res = await fetch(`/api/health-factor/history?${params.toString()}`);
+  if (!res.ok) return [];
+
+  const data = (await res.json()) as { samples: HealthFactorSample[] };
+  return data.samples;
+}
+
+/** Hourly average HF across all loans the server has recorded, open or closed. */
+export async function fetchPortfolioHealthFactorHistory(
+  wallet: string,
+): Promise<HealthFactorSample[]> {
+  const params = new URLSearchParams({ wallet });
+  const res = await fetch(`/api/health-factor/portfolio-history?${params.toString()}`);
+  if (!res.ok) return [];
+
+  const data = (await res.json()) as { samples: HealthFactorSample[] };
+  return data.samples;
+}
+
 export async function fetchWalletAssetBalances(
   wallet: string,
   assets: AssetPosition[],

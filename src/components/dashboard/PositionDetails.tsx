@@ -1,7 +1,7 @@
 import { AlertTriangle, Info, ShieldCheck } from 'lucide-react';
 import { clamp, healthLabel, type Computed, type LoanPosition } from '@aave-monitor/core';
 import { LoanPositionChartsCard, type BorrowRateSample } from '../ReserveCharts';
-import type { InterestSnapshot } from '../../api/aaveMonitor';
+import type { HealthFactorSample, InterestSnapshot } from '../../api/aaveMonitor';
 import type { WatchdogConfigState } from '../../hooks/useWatchdogConfig';
 import { Badge, type BadgeVariant } from '../ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -36,6 +36,7 @@ export function SelectedLoanLabel({ loan }: { loan: LoanPosition | null }) {
 export function PositionDetailsSection({
   hideSensitiveValues,
   borrowRateHistory,
+  healthFactorHistory,
   loanInterestHistory,
   computed,
   now,
@@ -46,6 +47,7 @@ export function PositionDetailsSection({
 }: {
   hideSensitiveValues: boolean;
   borrowRateHistory: BorrowRateSample[];
+  healthFactorHistory: HealthFactorSample[];
   loanInterestHistory: InterestSnapshot[];
   computed: Computed;
   now: number;
@@ -74,6 +76,7 @@ export function PositionDetailsSection({
         <LoanPositionChartsCard
           hideSensitiveValues={hideSensitiveValues}
           borrowRateHistory={borrowRateHistory}
+          healthFactorHistory={healthFactorHistory}
           loanInterestHistory={loanInterestHistory}
           currentTimeMs={now}
           reserveTelemetry={reserveTelemetry}

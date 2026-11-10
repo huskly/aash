@@ -22,6 +22,11 @@ export type InterestDeltaRow = {
   label: string | null;
 };
 
+export type HealthFactorSample = {
+  timestamp: number; // epoch ms
+  healthFactor: number;
+};
+
 export type PortfolioSnapshot = {
   timestamp: number;
   totalDebt: number;
@@ -72,6 +77,10 @@ export class RateHistoryDb {
   private queryPortfolioDailyToStmt: Database.Statement;
   private queryPortfolioDailyRangeStmt: Database.Statement;
   private prunePortfolioStmt: Database.Statement;
+  private insertHealthFactorStmt: Database.Statement;
+  private queryHealthFactorStmt: Database.Statement;
+  private queryPortfolioHealthFactorStmt: Database.Statement;
+  private pruneHealthFactorStmt: Database.Statement;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -221,6 +230,79 @@ export class RateHistoryDb {
     this.prunePortfolioStmt = this.db.prepare(
       'DELETE FROM portfolio_snapshots WHERE timestamp < ?',
     );
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS health_factor_samples (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        wallet        TEXT    NOT NULL,
+        position_id   TEXT    NOT NULL,
+        timestamp     INTEGER NOT NULL,
+        health_factor REAL    NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_health_factor_unique
+        ON health_factor_samples (wallet, position_id, timestamp);
+    `);
+    this.insertHealthFactorStmt = this.db.prepare(
+      'INSERT OR IGNORE INTO health_factor_samples (wallet, position_id, timestamp, health_factor) VALUES (?, ?, ?, ?)',
+    );
+    this.queryHealthFactorStmt = this.db.prepare(
+      'SELECT timestamp, health_factor FROM health_factor_samples WHERE wallet = ? AND position_id = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC',
+    );
+    // Portfolio HF is the plain average of loan HFs, matching the dashboard's average health
+    // factor. Each loan contributes its latest sample per hour; hours average across loans.
+    this.queryPortfolioHealthFactorStmt = this.db.prepare(`
+      SELECT MAX(timestamp) AS timestamp, AVG(health_factor) AS health_factor
+      FROM (
+        SELECT MAX(timestamp) AS timestamp, health_factor, CAST(timestamp / 3600000 AS INTEGER) AS hour
+        FROM health_factor_samples
+        WHERE wallet = ? AND timestamp >= ? AND timestamp <= ?
+        GROUP BY position_id, hour
+      )
+      GROUP BY hour
+      ORDER BY timestamp ASC
+    `);
+    this.pruneHealthFactorStmt = this.db.prepare(
+      'DELETE FROM health_factor_samples WHERE timestamp < ?',
+    );
+  }
+
+  /** Debt-free positions have an infinite HF and are not recorded. */
+  appendHealthFactorSample(
+    wallet: string,
+    positionId: string,
+    timestampMs: number,
+    healthFactor: number,
+  ): void {
+    if (!Number.isFinite(healthFactor)) return;
+    this.insertHealthFactorStmt.run(wallet.toLowerCase(), positionId, timestampMs, healthFactor);
+  }
+
+  queryHealthFactorSamples(
+    wallet: string,
+    positionId: string,
+    fromMs = 0,
+    toMs = Number.MAX_SAFE_INTEGER,
+  ): HealthFactorSample[] {
+    const rows = this.queryHealthFactorStmt.all(
+      wallet.toLowerCase(),
+      positionId,
+      fromMs,
+      toMs,
+    ) as Array<{ timestamp: number; health_factor: number }>;
+    return rows.map((r) => ({ timestamp: r.timestamp, healthFactor: r.health_factor }));
+  }
+
+  queryPortfolioHealthFactor(
+    wallet: string,
+    fromMs = 0,
+    toMs = Number.MAX_SAFE_INTEGER,
+  ): HealthFactorSample[] {
+    const rows = this.queryPortfolioHealthFactorStmt.all(
+      wallet.toLowerCase(),
+      fromMs,
+      toMs,
+    ) as Array<{ timestamp: number; health_factor: number }>;
+    return rows.map((r) => ({ timestamp: r.timestamp, healthFactor: r.health_factor }));
   }
 
   appendPortfolioSnapshot(
@@ -402,7 +484,10 @@ export class RateHistoryDb {
     const result = this.pruneStmt.run(cutoff);
     const interestResult = this.pruneInterestStmt.run(cutoff);
     const portfolioResult = this.prunePortfolioStmt.run(cutoff);
-    return result.changes + interestResult.changes + portfolioResult.changes;
+    const healthFactorResult = this.pruneHealthFactorStmt.run(cutoff);
+    return (
+      result.changes + interestResult.changes + portfolioResult.changes + healthFactorResult.changes
+    );
   }
 
   close(): void {

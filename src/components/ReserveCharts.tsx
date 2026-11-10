@@ -23,7 +23,8 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Stat } from './Stat';
 import { fmtUsd } from './chartFormat';
-import type { InterestSnapshot } from '../api/aaveMonitor';
+import type { HealthFactorSample, InterestSnapshot } from '../api/aaveMonitor';
+import { HealthFactorHistoryChart } from './HealthFactorHistoryChart';
 import { SensitiveBlock, SensitiveValue } from './dashboard/privacy';
 
 export type BorrowRateSample = {
@@ -33,7 +34,7 @@ export type BorrowRateSample = {
 };
 
 type HistoryWindow = '24h' | '7d' | '30d' | '90d' | '180d';
-type LoanChartTab = 'model' | 'borrowApr' | 'dailyInterest';
+type LoanChartTab = 'model' | 'healthFactor' | 'borrowApr' | 'dailyInterest';
 
 const HISTORY_WINDOWS: Array<{ value: HistoryWindow; label: string; durationMs: number }> = [
   { value: '24h', label: '24h', durationMs: 24 * 60 * 60 * 1000 },
@@ -671,6 +672,7 @@ export function InterestAccrualHistoryCard({
 export function LoanPositionChartsCard({
   hideSensitiveValues,
   borrowRateHistory,
+  healthFactorHistory,
   loanInterestHistory,
   currentTimeMs,
   reserveTelemetry,
@@ -679,6 +681,7 @@ export function LoanPositionChartsCard({
 }: {
   hideSensitiveValues: boolean;
   borrowRateHistory: BorrowRateSample[];
+  healthFactorHistory: HealthFactorSample[];
   loanInterestHistory: InterestSnapshot[];
   currentTimeMs: number;
   reserveTelemetry: ReserveTelemetry | null;
@@ -692,11 +695,13 @@ export function LoanPositionChartsCard({
   const description =
     activeTab === 'model'
       ? 'Current utilization mapped against the market borrow APR curve.'
-      : activeTab === 'borrowApr'
-        ? 'Borrow APR sampled from reserve telemetry by the server and tracked over time.'
-        : isFixedRateLoan
-          ? 'Daily borrow interest, spread in equal daily amounts until maturity.'
-          : 'Daily borrow interest accrued, derived from Morpho cumulative PnL.';
+      : activeTab === 'healthFactor'
+        ? 'Health factor sampled by the server on monitor polls.'
+        : activeTab === 'borrowApr'
+          ? 'Borrow APR sampled from reserve telemetry by the server and tracked over time.'
+          : isFixedRateLoan
+            ? 'Daily borrow interest, spread in equal daily amounts until maturity.'
+            : 'Daily borrow interest accrued, derived from Morpho cumulative PnL.';
 
   const primaryBorrow =
     selectedLoan?.borrowed.reduce<LoanPosition['borrowed'][number] | null>(
@@ -720,6 +725,14 @@ export function LoanPositionChartsCard({
               onClick={() => setActiveTab('model')}
             >
               Rate Model
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={activeTab === 'healthFactor' ? 'default' : 'ghost'}
+              onClick={() => setActiveTab('healthFactor')}
+            >
+              Health Factor
             </Button>
             <Button
               type="button"
@@ -780,6 +793,18 @@ export function LoanPositionChartsCard({
             </p>
           </CardContent>
         )
+      ) : activeTab === 'healthFactor' ? (
+        <CardContent className="grid gap-4">
+          <HealthFactorHistoryChart
+            samples={healthFactorHistory}
+            cutoffMs={
+              currentTimeMs -
+              (HISTORY_WINDOWS.find((entry) => entry.value === windowValue)?.durationMs ?? Infinity)
+            }
+            statLabel="Latest HF"
+            emptyMessage="Health factor history needs at least two samples. Keep the server running so samples can accrue on monitor polls."
+          />
+        </CardContent>
       ) : activeTab === 'borrowApr' ? (
         <BorrowRateHistoryContent
           currentTimeMs={currentTimeMs}

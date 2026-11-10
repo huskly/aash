@@ -7,8 +7,10 @@ import type {
 } from '@aave-monitor/core';
 import {
   fetchBorrowRateHistory,
+  fetchHealthFactorHistory,
   fetchInterestHistory,
   fetchReserveTelemetry,
+  type HealthFactorSample,
   type InterestSnapshot,
 } from '../api/aaveMonitor';
 import { buildBorrowRateHistoryKey, readBorrowRateHistory } from '../lib/borrowRateHistory';
@@ -25,6 +27,7 @@ type UsePositionDetailsDataResult = {
   selectedReserveTelemetry: ReserveTelemetry | null;
   reserveTelemetryError: string;
   borrowRateHistory: BorrowRateSample[];
+  healthFactorHistory: HealthFactorSample[];
   loanInterestHistory: InterestSnapshot[];
   vaultInterestHistories: Record<string, InterestSnapshot[]>;
   vaultRateHistory: BorrowRateSample[];
@@ -41,6 +44,7 @@ export function usePositionDetailsData({
   );
   const [reserveTelemetryError, setReserveTelemetryError] = useState('');
   const [borrowRateHistory, setBorrowRateHistory] = useState<BorrowRateSample[]>([]);
+  const [healthFactorHistory, setHealthFactorHistory] = useState<HealthFactorSample[]>([]);
   const [loanInterestHistory, setLoanInterestHistory] = useState<InterestSnapshot[]>([]);
   const [vaultInterestHistories, setVaultInterestHistories] = useState<
     Record<string, InterestSnapshot[]>
@@ -52,6 +56,7 @@ export function usePositionDetailsData({
       setSelectedReserveTelemetry(null); // eslint-disable-line react-hooks/set-state-in-effect -- resetting state on dependency change
       setReserveTelemetryError('');
       setBorrowRateHistory([]);
+      setHealthFactorHistory([]);
       setLoanInterestHistory([]);
       return;
     }
@@ -65,6 +70,10 @@ export function usePositionDetailsData({
     setReserveTelemetryError('');
 
     const resolvedWallet = result?.wallet ?? walletInput.trim();
+    void fetchHealthFactorHistory(resolvedWallet, selectedLoan.id).then((samples) => {
+      if (cancelled) return;
+      setHealthFactorHistory(samples);
+    });
     void fetchBorrowRateHistory(resolvedWallet, selectedLoan.id).then((apiSamples) => {
       if (cancelled) return;
       if (apiSamples.length > 0) {
@@ -151,6 +160,7 @@ export function usePositionDetailsData({
     selectedReserveTelemetry,
     reserveTelemetryError,
     borrowRateHistory,
+    healthFactorHistory,
     loanInterestHistory,
     vaultInterestHistories,
     vaultRateHistory,

@@ -55,6 +55,10 @@ const portfolioInterestHistoryQuerySchema = z.object({
   to: z.coerce.number().int().optional(),
 });
 
+const healthFactorHistoryQuerySchema = portfolioInterestHistoryQuerySchema.extend({
+  positionId: z.string().min(1),
+});
+
 const portfolioHistoryQuerySchema = z.object({
   wallet: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   from: z.coerce.number().int().optional(),
@@ -313,6 +317,26 @@ app.get('/api/portfolio/history', (req, res) => {
   const { wallet, from, to, bucket } = parsed.data;
   const samples = rateHistoryDb.queryPortfolioSnapshots(wallet, from, to, bucket ?? 'raw');
   res.json({ samples });
+});
+
+app.get('/api/health-factor/history', (req, res) => {
+  const parsed = healthFactorHistoryQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid query parameters' });
+    return;
+  }
+  const { wallet, positionId, from, to } = parsed.data;
+  res.json({ samples: rateHistoryDb.queryHealthFactorSamples(wallet, positionId, from, to) });
+});
+
+app.get('/api/health-factor/portfolio-history', (req, res) => {
+  const parsed = portfolioInterestHistoryQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid query parameters' });
+    return;
+  }
+  const { wallet, from, to } = parsed.data;
+  res.json({ samples: rateHistoryDb.queryPortfolioHealthFactor(wallet, from, to) });
 });
 
 app.get('/api/health', (_req, res) => {
