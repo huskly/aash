@@ -51,6 +51,18 @@ export async function fetchInterestHistory(
   return data.snapshots;
 }
 
+/** Daily interest histories for every loan the server has recorded, open or closed. */
+export async function fetchPortfolioInterestHistories(
+  wallet: string,
+): Promise<InterestSnapshot[][]> {
+  const params = new URLSearchParams({ wallet });
+  const res = await fetch(`/api/interest/portfolio-history?${params.toString()}`);
+  if (!res.ok) return [];
+
+  const data = (await res.json()) as { histories: InterestSnapshot[][] };
+  return data.histories;
+}
+
 export type PortfolioSnapshot = {
   timestamp: number;
   totalDebt: number;

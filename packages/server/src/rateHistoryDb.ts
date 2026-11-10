@@ -60,6 +60,7 @@ export class RateHistoryDb {
   private queryInterestDailyFromStmt: Database.Statement;
   private queryInterestDailyToStmt: Database.Statement;
   private queryInterestDailyRangeStmt: Database.Statement;
+  private queryInterestPositionIdsStmt: Database.Statement;
   private pruneInterestStmt: Database.Statement;
   private insertPortfolioStmt: Database.Statement;
   private queryPortfolioStmt: Database.Statement;
@@ -167,6 +168,9 @@ export class RateHistoryDb {
     );
     this.queryInterestDailyRangeStmt = this.db.prepare(
       `SELECT ${dailyCols} FROM interest_snapshots WHERE wallet = ? AND position_id = ? AND kind = ? AND timestamp >= ? AND timestamp <= ? GROUP BY ${dayBucket} ORDER BY timestamp ASC`,
+    );
+    this.queryInterestPositionIdsStmt = this.db.prepare(
+      'SELECT DISTINCT position_id FROM interest_snapshots WHERE wallet = ? AND kind = ?',
     );
     this.pruneInterestStmt = this.db.prepare('DELETE FROM interest_snapshots WHERE timestamp < ?');
 
@@ -337,6 +341,14 @@ export class RateHistoryDb {
       cumulativeUsd: r.cumulative_usd,
       label: r.label,
     }));
+  }
+
+  /** Every position with recorded interest, including ones that have since been closed. */
+  queryInterestPositionIds(wallet: string, kind: InterestKind): string[] {
+    const rows = this.queryInterestPositionIdsStmt.all(wallet.toLowerCase(), kind) as Array<{
+      position_id: string;
+    }>;
+    return rows.map((r) => r.position_id);
   }
 
   appendSample(

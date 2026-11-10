@@ -141,3 +141,17 @@ test('prune also removes old interest snapshots', () => {
   assert.equal(rows[0].cumulativeUsd, 2);
   db.close();
 });
+
+test('queryInterestPositionIds keeps closed positions and separates kinds and wallets', () => {
+  const db = createDb();
+  db.appendInterestSnapshot('0xABC', 'closed-loan', 'loan', null, 1_000, -10);
+  db.appendInterestSnapshot('0xabc', 'open-loan', 'loan', null, 2_000, 5);
+  db.appendInterestSnapshot('0xabc', 'vault-1', 'vault', null, 2_000, 5);
+  db.appendInterestSnapshot('0xdef', 'other-loan', 'loan', null, 2_000, 5);
+
+  assert.deepEqual(db.queryInterestPositionIds('0xabc', 'loan').sort(), [
+    'closed-loan',
+    'open-loan',
+  ]);
+  db.close();
+});

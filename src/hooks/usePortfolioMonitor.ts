@@ -12,8 +12,8 @@ import {
 } from '@aave-monitor/core';
 import {
   fetchBorrowRateHistory,
-  fetchInterestHistory,
   fetchPortfolioHistory,
+  fetchPortfolioInterestHistories,
   fetchWalletAssetBalances,
   type InterestSnapshot,
   type PortfolioSnapshot,
@@ -284,24 +284,23 @@ export function usePortfolioMonitor(): UsePortfolioMonitorResult {
 
   useEffect(() => {
     const resolvedWallet = result?.wallet;
-    const loans = result?.loans ?? [];
-    if (!resolvedWallet || loans.length === 0) {
+    if (!resolvedWallet) {
       setPortfolioBorrowInterestHistory([]); // eslint-disable-line react-hooks/set-state-in-effect
       return;
     }
 
     let cancelled = false;
-    void Promise.all(
-      loans.map((loan) => fetchInterestHistory(resolvedWallet, loan.id, 'loan').catch(() => [])),
-    ).then((histories) => {
-      if (cancelled) return;
-      setPortfolioBorrowInterestHistory(combineBorrowInterestHistories(histories));
-    });
+    void fetchPortfolioInterestHistories(resolvedWallet)
+      .catch(() => [])
+      .then((histories) => {
+        if (cancelled) return;
+        setPortfolioBorrowInterestHistory(combineBorrowInterestHistories(histories));
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [result?.wallet, result?.lastUpdated, result?.loans]);
+  }, [result?.wallet, result?.lastUpdated]);
 
   return {
     wallet,
