@@ -104,7 +104,7 @@ export async function fetchHealthFactorHistory(
   return data.samples;
 }
 
-/** Hourly average HF across all loans the server has recorded, open or closed. */
+/** Hourly debt-weighted HF across all loans the server has recorded, open or closed. */
 export async function fetchPortfolioHealthFactorHistory(
   wallet: string,
 ): Promise<HealthFactorSample[]> {

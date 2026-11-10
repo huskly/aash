@@ -242,22 +242,33 @@ export class RateHistoryDb {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_health_factor_unique
         ON health_factor_samples (wallet, position_id, timestamp);
     `);
-    this.insertHealthFactorStmt = this.db.prepare(
-      'INSERT OR IGNORE INTO health_factor_samples (wallet, position_id, timestamp, health_factor) VALUES (?, ?, ?, ?)',
-    );
+    const healthFactorTableInfo = this.db
+      .prepare('PRAGMA table_info(health_factor_samples)')
+      .all() as Array<{ name: string }>;
+    if (!healthFactorTableInfo.some((column) => column.name === 'debt_usd')) {
+      this.db.exec('ALTER TABLE health_factor_samples ADD COLUMN debt_usd REAL');
+    }
+    this.insertHealthFactorStmt = this.db.prepare(`
+      INSERT INTO health_factor_samples (wallet, position_id, timestamp, health_factor, debt_usd)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT (wallet, position_id, timestamp)
+      DO UPDATE SET health_factor = excluded.health_factor, debt_usd = excluded.debt_usd
+    `);
     this.queryHealthFactorStmt = this.db.prepare(
       'SELECT timestamp, health_factor FROM health_factor_samples WHERE wallet = ? AND position_id = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC',
     );
-    // Portfolio HF is the plain average of loan HFs, matching the dashboard's average health
-    // factor. Each loan contributes its latest sample per hour; hours average across loans.
+    // Portfolio HF is the debt-weighted average of loan HFs. Each loan contributes its latest
+    // sample per hour; samples without a recorded debt (written before debt was stored) are left
+    // out of the average.
     this.queryPortfolioHealthFactorStmt = this.db.prepare(`
-      SELECT MAX(timestamp) AS timestamp, AVG(health_factor) AS health_factor
+      SELECT MAX(timestamp) AS timestamp, SUM(health_factor * debt_usd) / SUM(debt_usd) AS health_factor
       FROM (
-        SELECT MAX(timestamp) AS timestamp, health_factor, CAST(timestamp / 3600000 AS INTEGER) AS hour
+        SELECT MAX(timestamp) AS timestamp, health_factor, debt_usd, CAST(timestamp / 3600000 AS INTEGER) AS hour
         FROM health_factor_samples
         WHERE wallet = ? AND timestamp >= ? AND timestamp <= ?
         GROUP BY position_id, hour
       )
+      WHERE debt_usd > 0
       GROUP BY hour
       ORDER BY timestamp ASC
     `);
@@ -272,9 +283,16 @@ export class RateHistoryDb {
     positionId: string,
     timestampMs: number,
     healthFactor: number,
+    debtUsd: number,
   ): void {
     if (!Number.isFinite(healthFactor)) return;
-    this.insertHealthFactorStmt.run(wallet.toLowerCase(), positionId, timestampMs, healthFactor);
+    this.insertHealthFactorStmt.run(
+      wallet.toLowerCase(),
+      positionId,
+      timestampMs,
+      healthFactor,
+      debtUsd,
+    );
   }
 
   queryHealthFactorSamples(
